@@ -1,4 +1,4 @@
-import { LogOut, Users } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,22 +15,14 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
   const signOut = useSignOut();
   if (!me) return null;
 
-  const { user, teams } = me;
-  const name = user.displayName || user.email;
+  const { user } = me;
+  const name = user.name || user.email;
   const initials = name
     .split(/\s+/)
     .map((part) => part[0])
     .slice(0, 2)
     .join('')
     .toUpperCase();
-  const role =
-    user.platformRole === 'platform_admin'
-      ? 'Platform admin'
-      : user.platformRole === 'platform_auditor'
-        ? 'Platform auditor'
-        : teams.length === 1
-          ? teams[0]!.name
-          : `${teams.length} teams`;
 
   return (
     <DropdownMenu>
@@ -53,28 +45,16 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
           <span className="block truncate text-sm font-medium text-[var(--text-primary)]">
             {name}
           </span>
-          <span className="block truncate text-xs text-[var(--text-muted)]">{role}</span>
+          {user.email && name !== user.email && (
+            <span className="block truncate text-xs text-[var(--text-muted)]">{user.email}</span>
+          )}
         </span>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" side="top" className="w-60">
         <DropdownMenuLabel className="truncate font-normal text-[var(--text-muted)]">
-          {user.email}
+          {user.email || name}
         </DropdownMenuLabel>
-        {teams.length > 0 && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="flex items-center gap-2">
-              <Users className="size-3.5" aria-hidden="true" /> Teams
-            </DropdownMenuLabel>
-            {teams.map((team) => (
-              <DropdownMenuItem key={team.id} disabled className="justify-between opacity-100">
-                <span className="truncate">{team.name}</span>
-                <span className="text-xs capitalize text-[var(--text-muted)]">{team.role}</span>
-              </DropdownMenuItem>
-            ))}
-          </>
-        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => signOut.mutate()}>
           <LogOut />

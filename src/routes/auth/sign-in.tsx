@@ -8,44 +8,15 @@ import { ME_KEY, nextPath, useAuthConfig, useDevSignIn } from '~/hooks/use-sessi
 import { usePageTitle } from '~/lib/document-title';
 import { instanceName } from '~/shared';
 
-const devPlatform = typeof __DEV_PLATFORM__ === 'undefined' ? null : __DEV_PLATFORM__;
+const SIGN_IN_ERRORS: Record<string, string> = {
+  expired: 'Signing in took too long. Try again.',
+  failed: "Single sign-on didn't complete. Try again, or ask an administrator.",
+};
 
 /**
- * Development against a remote platform: its single sign-on returns to the
- * platform's own domain, so the session is handed to the dev proxy instead.
- */
-function RemoteDevSignIn({ url, cookieName }: { url: string; cookieName: string }) {
-  return (
-    <div className="space-y-3 text-sm text-[var(--text-secondary)]">
-      <p className="font-medium text-[var(--text-primary)]">Development against {url}</p>
-      <ol className="list-decimal space-y-1.5 pl-5">
-        <li>
-          <a href={url} target="_blank" rel="noreferrer" className="underline">
-            Sign in on the platform
-          </a>
-          .
-        </li>
-        <li>
-          In its developer tools (Application → Cookies), copy the value of{' '}
-          <code className="font-mono text-xs">{cookieName}</code>.
-        </li>
-        <li>
-          Add <code className="font-mono text-xs">PLATFORM_SESSION=…</code> to{' '}
-          <code className="font-mono text-xs">.env.local</code> and restart{' '}
-          <code className="font-mono text-xs">pnpm dev</code>.
-        </li>
-      </ol>
-      <p className="text-xs text-[var(--text-muted)]">
-        The dev server sends it to the platform with each request; the browser never sees it.
-      </p>
-    </div>
-  );
-}
-
-/**
- * Sign in through the platform: single sign-on (OIDC) when it is configured,
- * and the platform's development personas when DEV_AUTH is on. The platform
- * owns the session; this page only starts it.
+ * Sign in to this app: single sign-on (OIDC) when it is configured, and the
+ * development accounts when DEV_AUTH is on. People never sign in to the agent
+ * platform; this app's server talks to it for them.
  */
 export function SignInPage() {
   const config = useAuthConfig();
@@ -55,7 +26,9 @@ export function SignInPage() {
   const instance = config.data?.instance;
   const appName = instance?.name;
   const returnTo = nextPath(window.location.search) ?? '/';
-  const signedOut = new URLSearchParams(window.location.search).has('signed-out');
+  const params = new URLSearchParams(window.location.search);
+  const signedOut = params.has('signed-out');
+  const failure = SIGN_IN_ERRORS[params.get('error') ?? ''];
 
   return (
     <main className="flex min-h-dvh flex-col items-center px-4 pt-[12vh] pb-12">
@@ -78,11 +51,20 @@ export function SignInPage() {
             role="alert"
             className="rounded-xl bg-[var(--danger)]/15 px-4 py-3 text-sm text-[var(--danger-on-tint)]"
           >
-            The platform could not be reached. {errorMessage(config.error, '')} Reload to try again.
+            The chat server could not be reached. {errorMessage(config.error, '')} Reload to try
+            again.
           </p>
         ) : (
           <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-control)]/40 p-6 backdrop-blur-sm">
-            {signedOut && (
+            {failure && (
+              <p
+                role="alert"
+                className="mb-4 rounded-lg bg-[var(--danger)]/15 px-3 py-2 text-xs text-[var(--danger-on-tint)]"
+              >
+                {failure}
+              </p>
+            )}
+            {signedOut && !failure && (
               <p
                 role="status"
                 className="mb-4 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs text-[var(--text-secondary)]"
@@ -90,16 +72,7 @@ export function SignInPage() {
                 Your session ended. Sign in again to continue.
               </p>
             )}
-            {devPlatform?.remote && !devPlatform.session ? (
-              <RemoteDevSignIn url={devPlatform.url} cookieName={devPlatform.cookieName} />
-            ) : devPlatform?.remote && devPlatform.session ? (
-              <p role="alert" className="text-sm text-[var(--danger-on-tint)]">
-                The platform did not accept PLATFORM_SESSION: it has expired or was signed out. Copy
-                a fresh <code className="font-mono text-xs">{devPlatform.cookieName}</code> into
-                .env.local and restart <code className="font-mono text-xs">pnpm dev</code>.
-              </p>
-            ) : null}
-            {config.data.oidcEnabled && !devPlatform?.remote && (
+            {config.data.oidcEnabled && (
               <Button asChild variant="primary" className="w-full">
                 <a href={`/auth/login?next=${encodeURIComponent(returnTo)}`}>
                   <ShieldCheck />
@@ -181,7 +154,8 @@ export function SignInPage() {
 
             {!config.data.oidcEnabled && !config.data.devAuthEnabled && (
               <p className="text-sm text-[var(--warning)]">
-                No sign-in method is configured on the platform.
+                No sign-in method is configured. Set OIDC_* (or DEV_AUTH=true locally) for the
+                server.
               </p>
             )}
           </div>

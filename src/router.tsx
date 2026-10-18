@@ -46,8 +46,7 @@ const authenticatedRoute = createRoute({
   id: 'authenticated',
   beforeLoad: async ({ location }) => {
     const session = await loadSession();
-    if (!session)
-      throw redirect({ to: '/sign-in', search: signInSearch(location.href) as never });
+    if (!session) throw redirect({ to: '/sign-in', search: signInSearch(location.href) as never });
     return { session };
   },
   component: () => (

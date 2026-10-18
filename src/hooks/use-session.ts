@@ -6,7 +6,6 @@ import {
   type Me,
   noteUnauthorized,
   setCsrfToken,
-  unwrap,
 } from '~/api/client';
 
 export const ME_KEY = ['me'] as const;
@@ -16,7 +15,7 @@ export const AUTH_CONFIG_KEY = ['auth-config'] as const;
 export async function fetchMe(): Promise<Me | null> {
   try {
     // optional: signed out is `data: null`, not a 401.
-    const me = unwrap(await api.GET('/v1/me', { params: { query: { optional: true } } }));
+    const me = await api.get<Me | null>('/api/me?optional=true');
     if (!me) return null;
     setCsrfToken(me.csrfToken);
     return me;
@@ -64,7 +63,7 @@ export function useCurrentUser(): Me | undefined {
 export function useAuthConfig() {
   return useQuery<AuthConfig>({
     queryKey: AUTH_CONFIG_KEY,
-    queryFn: async () => unwrap(await api.GET('/v1/auth/config')),
+    queryFn: () => api.get<AuthConfig>('/api/auth/config'),
     staleTime: Number.POSITIVE_INFINITY,
   });
 }
@@ -72,9 +71,7 @@ export function useAuthConfig() {
 export function useSignOut() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      await api.POST('/auth/logout');
-    },
+    mutationFn: () => api.post('/auth/logout'),
     onSettled: () => {
       forgetSession();
       noteUnauthorized();
@@ -85,11 +82,10 @@ export function useSignOut() {
   });
 }
 
-/** Development sign-in as one of the platform's DEV_AUTH personas. */
+/** Development sign-in as one of the server's DEV_AUTH accounts. */
 export function useDevSignIn() {
   return useMutation({
-    mutationFn: async (account: string) =>
-      unwrap(await api.POST('/auth/dev', { body: { account } })),
+    mutationFn: (account: string) => api.post('/auth/dev', { account }),
   });
 }
 

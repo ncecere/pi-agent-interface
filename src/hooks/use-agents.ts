@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type Agent, type AgentThread, api, unwrap } from '~/api/client';
+import { type Agent, type AgentThread, agentPath, api, threadPath } from '~/api/client';
 
 export const AGENTS_KEY = ['agents'] as const;
 export const threadsKey = (agentId: string) => ['agents', agentId, 'threads'] as const;
 
-/** The agents of the person's teams, by team and name. */
+/** The person's own agents; the server makes their assistant the first time. */
 export function useAgents() {
   return useQuery({
     queryKey: AGENTS_KEY,
-    queryFn: async () => unwrap(await api.GET('/v1/agents')),
+    queryFn: () => api.get<Agent[]>('/api/agents'),
     staleTime: 30_000,
     // Running/hibernating changes on its own; a slow refresh keeps it roughly current.
     refetchInterval: 60_000,
@@ -28,15 +28,12 @@ export function chattable(agents: readonly Agent[] | undefined): Agent[] {
 /**
  * An agent's conversations, most recent first. Listing wakes the agent's
  * runtime, so this only runs for agents that are open in the sidebar or on
- * screen (`enabled`), never for every agent at once.
+ * screen (`enabled`).
  */
 export function useAgentThreads(agentId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: threadsKey(agentId ?? ''),
-    queryFn: async () =>
-      unwrap(
-        await api.GET('/v1/agents/{agentId}/threads', { params: { path: { agentId: agentId! } } }),
-      ),
+    queryFn: () => api.get<AgentThread[]>(agentPath(agentId!, '/threads')),
     enabled: Boolean(agentId) && enabled,
     staleTime: 15_000,
   });
@@ -52,13 +49,8 @@ export function useThreadTitle(agentId: string, threadId: string): string | unde
 export function useDeleteThread() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ agentId, threadId }: { agentId: string; threadId: string }) => {
-      unwrap(
-        await api.DELETE('/v1/agents/{agentId}/threads/{threadId}', {
-          params: { path: { agentId, threadId } },
-        }),
-      );
-    },
+    mutationFn: ({ agentId, threadId }: { agentId: string; threadId: string }) =>
+      api.delete(threadPath(agentId, threadId)),
     onMutate: async ({ agentId, threadId }) => {
       await queryClient.cancelQueries({ queryKey: threadsKey(agentId) });
       queryClient.setQueryData<AgentThread[]>(threadsKey(agentId), (threads) =>

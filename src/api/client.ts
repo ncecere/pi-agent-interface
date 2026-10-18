@@ -1,44 +1,46 @@
-import createClient, { type Middleware } from 'openapi-fetch';
-import type { components, paths } from './schema.gen';
+import type { components } from './schema.gen';
 
 /**
- * The pi-durable-platform API, same origin. In development Vite proxies /v1
- * and /auth to the platform (vite.config.ts); in production the platform or a
- * reverse proxy serves this UI beside them. Types come from the platform's
- * OpenAPI document: `pnpm gen:api`.
+ * This app's own server (server/), same origin. It signs people in and talks
+ * to pi-durable-platform for them with the team's service account; the
+ * browser never reaches the platform. Agent and conversation shapes are the
+ * platform's, passed through unchanged (types from its OpenAPI: `pnpm gen:api`).
  */
-export type Schemas = components['schemas'];
+type Schemas = components['schemas'];
 export type Agent = Schemas['Agent'];
 export type AgentThread = Schemas['AgentThread'];
 export type ChatView = Schemas['ChatView'];
 export type ChatViewMessage = Schemas['ChatMessage'];
-export type Me = Schemas['Me'];
-export type AuthConfig = Schemas['AuthConfig'];
 
-/** An error response from the platform: `{"error": {"code", "message"}}`. */
+export interface Me {
+  user: { id: string; name: string; email: string };
+  csrfToken: string;
+}
+
+export interface AuthConfig {
+  oidcEnabled: boolean;
+  devAuthEnabled: boolean;
+  devAccounts: { id: string; name: string; email: string }[];
+  instance: { name: string; logoUrl: string | null; orgName: string; supportUrl: string | null };
+}
+
+/** An error response: `{"error": {"code", "message"}}`. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
     readonly details?: Record<string, unknown>,
-    /** Seconds from Retry-After (429 rate_limited). */
-    readonly retryAfter?: number,
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-// The session's CSRF token, from GET /v1/me. Sent on every unsafe request.
+// The session's CSRF token, from GET /api/me. Sent on every write.
 let csrfToken = '';
 export function setCsrfToken(token: string) {
   csrfToken = token;
-}
-
-/** The CSRF header for unsafe requests made without the typed client. */
-export function csrfHeader(): Record<string, string> {
-  return csrfToken ? { 'X-CSRF-Token': csrfToken } : {};
 }
 
 const sessionEndedListeners = new Set<() => void>();
@@ -53,48 +55,57 @@ export function noteUnauthorized() {
   for (const listener of sessionEndedListeners) listener();
 }
 
-const middleware: Middleware = {
-  onRequest({ request }) {
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && csrfToken) {
-      request.headers.set('X-CSRF-Token', csrfToken);
-    }
-    return request;
-  },
-  onResponse({ response }) {
-    if (response.status === 401) noteUnauthorized();
-    return response;
-  },
-};
-
-export const api = createClient<paths>({
-  baseUrl: globalThis.location?.origin ?? '',
-  credentials: 'same-origin',
-  // Looked up per call so tests can replace fetch.
-  fetch: (request) => globalThis.fetch(request),
-});
-api.use(middleware);
-
-type Result<T> = { data?: { data: T }; error?: unknown; response: Response };
-
-/** The `data` of a successful response, or throws an ApiError. */
-export function unwrap<T>(res: Result<T>): T {
-  if (res.data !== undefined) return res.data.data;
-  throw apiErrorFrom(res.response, res.error);
-}
-
 export function apiErrorFrom(response: Response, body: unknown): ApiError {
   const err = (body ?? {}) as {
     error?: { code?: string; message?: string; details?: Record<string, unknown> };
   };
-  const retry = Number(response.headers?.get('Retry-After'));
   return new ApiError(
     response.status,
     err.error?.code ?? `http_${response.status}`,
     err.error?.message ?? `Request failed (${response.status})`,
     err.error?.details,
-    Number.isFinite(retry) && retry > 0 ? retry : undefined,
   );
 }
+
+/** A request to this app's server; the `data` of the answer, or throws an ApiError. */
+export async function request<T>(
+  method: 'GET' | 'POST' | 'DELETE' | 'PATCH' | 'PUT',
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const response = await fetch(path, {
+    method,
+    headers,
+    credentials: 'same-origin',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  let parsed: unknown = null;
+  try {
+    parsed = await response.json();
+  } catch {
+    // An empty or non-JSON answer: the status says enough.
+  }
+  if (!response.ok) {
+    if (response.status === 401) noteUnauthorized();
+    throw apiErrorFrom(response, parsed);
+  }
+  return (parsed as { data: T } | null)?.data as T;
+}
+
+export const api = {
+  get: <T>(path: string) => request<T>('GET', path),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  delete: <T>(path: string) => request<T>('DELETE', path),
+};
+
+/** `/api/agents/{agentId}…`, with each part encoded. */
+export const agentPath = (agentId: string, rest = '') =>
+  `/api/agents/${encodeURIComponent(agentId)}${rest}`;
+export const threadPath = (agentId: string, threadId: string, rest = '') =>
+  agentPath(agentId, `/threads/${encodeURIComponent(threadId)}${rest}`);
 
 /** A message suitable to show for a failed request. */
 export function errorMessage(error: unknown, fallback = 'Something went wrong.'): string {

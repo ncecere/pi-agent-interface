@@ -1,6 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, api, type ChatView, errorMessage, noteUnauthorized, unwrap } from '~/api/client';
+import {
+  ApiError,
+  api,
+  type ChatView,
+  errorMessage,
+  noteUnauthorized,
+  threadPath,
+} from '~/api/client';
 import { noteNewThread, threadsKey } from '~/hooks/use-agents';
 import {
   type AgentUIMessage,
@@ -144,7 +151,7 @@ export function useAgentThread({
       return;
     }
     const abort = new AbortController();
-    const url = `/v1/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}/events`;
+    const url = threadPath(agentId, threadId, '/events');
     let attempt = 0;
 
     void (async () => {
@@ -226,12 +233,7 @@ export function useAgentThread({
             ],
       );
       try {
-        unwrap(
-          await api.POST('/v1/agents/{agentId}/threads/{threadId}/messages', {
-            params: { path: { agentId, threadId } },
-            body: { text: content, requestId },
-          }),
-        );
+        await api.post(threadPath(agentId, threadId, '/messages'), { text: content, requestId });
         setPending((current) =>
           current.map((message) =>
             message.requestId === requestId && message.state === 'sending'
@@ -283,11 +285,7 @@ export function useAgentThread({
   const stop = useCallback(async () => {
     setStopping(true);
     try {
-      unwrap(
-        await api.POST('/v1/agents/{agentId}/threads/{threadId}/stop', {
-          params: { path: { agentId, threadId } },
-        }),
-      );
+      await api.post(threadPath(agentId, threadId, '/stop'));
     } catch (error) {
       setStopping(false);
       setSendError(errorMessage(error, "The agent couldn't be stopped. Try again."));

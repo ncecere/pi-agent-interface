@@ -26,3 +26,5 @@ _TMP/
 
 # Reference captures contain authenticated personal account data
 screen_shots/
+dist-server/
+.shots/

@@ -104,7 +104,7 @@ export function ChatHomePage({ agentId }: { agentId?: string }) {
     [agent, navigate, queryClient],
   );
 
-  const firstName = me && greetingName(me.user.displayName, null);
+  const firstName = me && greetingName(me.user.name, null);
   const loading = agentsQuery.isPending;
 
   return (
