@@ -15,6 +15,7 @@ import {
   type ThreadMeta,
   threadKey,
   untilLabel,
+  withPlatform,
 } from '../../src/lib/inbox';
 
 const MIN = 60_000;
@@ -324,5 +325,73 @@ describe('replyDropped', () => {
     expect(replyDropped(view(false, 'user', 'assistant'), long, now)).toBe(false);
     expect(replyDropped(view(false, 'user'), now - 5_000, now)).toBe(false);
     expect(replyDropped(view(false, 'user'), undefined, now)).toBe(false);
+  });
+});
+
+describe('withPlatform', () => {
+  const since = 1_000_000;
+  const now = 5_000_000;
+  const thread = (facts: Partial<{ busy: boolean; lastReplyAt: number; lastError: string }>) => ({
+    updatedAt: 4_000_000,
+    busy: false,
+    ...facts,
+  });
+
+  it('is working while the platform says busy, from when the message was sent', () => {
+    expect(withPlatform({}, thread({ busy: true }), since).workingSince).toBe(4_000_000);
+    expect(statusOf(withPlatform({}, thread({ busy: true }), since), now)).toBe('working');
+    // Started here: this browser's time is kept.
+    expect(
+      withPlatform({ workingSince: 4_100_000 }, thread({ busy: true }), since).workingSince,
+    ).toBe(4_100_000);
+  });
+
+  it('is done when the platform finished a reply the person has not seen', () => {
+    const meta = withPlatform({ visitedAt: 2_000_000 }, thread({ lastReplyAt: 3_000_000 }), since);
+    expect(statusOf(meta, now)).toBe('unread');
+  });
+
+  it('is failed when that reply failed', () => {
+    const meta = withPlatform(
+      { visitedAt: 2_000_000 },
+      thread({ lastReplyAt: 3_000_000, lastError: 'boom' }),
+      since,
+    );
+    expect(statusOf(meta, now)).toBe('failed');
+  });
+
+  it('is not new when it finished before the inbox began, or while the person was looking', () => {
+    expect(statusOf(withPlatform({}, thread({ lastReplyAt: 900_000 }), since), now)).toBeNull();
+    // Seen 10s before the platform's time: within the clock allowance.
+    const seen = withPlatform(
+      { visitedAt: 3_000_000 - 10_000 },
+      thread({ lastReplyAt: 3_000_000 }),
+      since,
+    );
+    expect(statusOf(seen, now)).toBeNull();
+  });
+
+  it('stops working once the platform finished after the send, even if this browser never saw it end', () => {
+    const meta = withPlatform(
+      { workingSince: 3_000_000, visitedAt: 3_000_000 },
+      thread({ lastReplyAt: 3_500_000 }),
+      since,
+    );
+    expect(meta.workingSince).toBeUndefined();
+    expect(statusOf(meta, now)).toBe('unread');
+  });
+
+  it('keeps a send this browser just made working until the platform catches up', () => {
+    const meta = withPlatform(
+      { workingSince: 4_900_000 },
+      thread({ lastReplyAt: 3_000_000 }),
+      since,
+    );
+    expect(statusOf(meta, now)).toBe('working');
+  });
+
+  it('changes nothing on a platform without thread status', () => {
+    const meta = { pinnedAt: 1 };
+    expect(withPlatform(meta, { updatedAt: 4_000_000 }, since)).toBe(meta);
   });
 });

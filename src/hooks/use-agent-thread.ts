@@ -9,7 +9,7 @@ import {
   threadPath,
 } from '~/api/client';
 import type { AgentLive } from '~/components/agent/avatar/agent-live';
-import { noteNewThread, threadsKey } from '~/hooks/use-agents';
+import { markThreadBusy, noteNewThread, threadsKey } from '~/hooks/use-agents';
 import { useInboxActions } from '~/hooks/use-inbox';
 import {
   type AgentUIMessage,
@@ -300,6 +300,7 @@ export function useAgentThread({
         ).length;
         awaitingUsers.current = Math.max(awaitingUsers.current ?? 0, users + Math.max(waiting, 1));
         inboxRef.current.working(threadKey(agentId, threadId), awaitingUsers.current);
+        markThreadBusy(queryClient, agentId, threadId);
         return true;
       } catch (error) {
         setPending((current) =>

@@ -130,7 +130,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** The signed-in user, CSRF token and capabilities */
+    /**
+     * The signed-in user, CSRF token and capabilities
+     * @description Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token (its person; csrfToken is empty, and an app's capabilities are none), never a service account key (403 person_required).
+     */
     get: operations['getMe'];
     put?: never;
     post?: never;
@@ -147,7 +150,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Teams the caller belongs to */
+    /**
+     * Teams the caller belongs to
+     * @description Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token, never a service account key (403 person_required).
+     */
     get: operations['listMyTeams'];
     put?: never;
     post?: never;
@@ -167,7 +173,10 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** A team the caller belongs to (platform admins and auditors see any team) */
+    /**
+     * A team the caller belongs to (platform admins and auditors see any team)
+     * @description Also takes `Authorization: Bearer` with a personal API key or an app's OAuth Connect access token, never a service account key (403 person_required).
+     */
     get: operations['getTeam'];
     put?: never;
     post?: never;
@@ -917,6 +926,233 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/v1/teams/{team}/usage': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    /**
+     * The team's model usage, with a cost estimate (its members and service accounts, platform staff)
+     * @description Requests and tokens per day, model or agent, from the platform's model proxy and from agents (direct-mode providers and the platform's default model). Cost uses the models' current prices. Service-managed agents are named for the team's owners and admins and its service accounts; others see them summed.
+     */
+    get: operations['getTeamUsage'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/usage': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every team's model usage (platform admins and auditors) */
+    get: operations['adminGetUsage'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/mcp-servers': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every MCP server, without header values (platform admins and auditors) */
+    get: operations['adminListMcpServers'];
+    put?: never;
+    /**
+     * Add a remote MCP server and read its tools (platform admins)
+     * @description Headers (for example Authorization) are stored encrypted and never returned. A server that cannot be reached is still added; toolsError says why.
+     */
+    post: operations['adminCreateMcpServer'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/mcp-servers/{serverId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    /** An MCP server and its tools (platform admins and auditors) */
+    get: operations['adminGetMcpServer'];
+    put?: never;
+    post?: never;
+    /** Remove an MCP server (platform admins); refused while template versions use it */
+    delete: operations['adminDeleteMcpServer'];
+    options?: never;
+    head?: never;
+    /** Change an MCP server, who it is published to, or turn it off (platform admins) */
+    patch: operations['adminUpdateMcpServer'];
+    trace?: never;
+  };
+  '/v1/admin/mcp-servers/{serverId}/refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Read the server's tools again (platform admins) */
+    post: operations['adminRefreshMcpServer'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/mcp-servers': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    /** The MCP servers the team may give its templates (its members and service accounts, platform staff) */
+    get: operations['listTeamMcpServers'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/agents/{agentId}/threads/{threadId}/mcp-servers': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        threadId: components['parameters']['ThreadIdParam'];
+      };
+      cookie?: never;
+    };
+    /** The MCP servers an app gave this thread (without headers) */
+    get: operations['getThreadMcpServers'];
+    /**
+     * Give the thread the MCP servers its user enabled in the app (replaces them; [] removes them)
+     * @description For template versions with clientMcp, on hosts the platform allows (AGENTS_CLIENT_MCP_HOSTS). Headers, such as the user's token, are stored encrypted until the server expires (default a day). The same list can be sent with a message as mcpServers.
+     */
+    put: operations['setThreadMcpServers'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/agents/events': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Server-sent events for the threads of every agent the caller may use
+     * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread. `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts).
+     */
+    get: operations['streamAgentEvents'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/settings/personal-workspaces': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Defaults for every personal workspace (platform admins and auditors) */
+    get: operations['adminGetPersonalSettings'];
+    /**
+     * Change the defaults for every personal workspace (platform admins)
+     * @description Turning personal workspaces off stops creating them at sign-in; existing ones stay (archive one to make it read-only). The monthly budget is recorded but not enforced yet.
+     */
+    put: operations['adminUpdatePersonalSettings'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/teams/{team}/limits': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    /** Override one personal workspace's limits (platform admins); null keeps the default */
+    put: operations['adminSetWorkspaceLimits'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/limits': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    /** The workspace's limits and how much of them is used (its members and service accounts, platform staff) */
+    get: operations['getWorkspaceLimits'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/v1/agents': {
     parameters: {
       query?: never;
@@ -1041,7 +1277,10 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** The agent's conversations, most recently used first (wakes the agent) */
+    /**
+     * The agent's conversations, most recently used first, with their status (does not wake the agent)
+     * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start.
+     */
     get: operations['listAgentThreads'];
     put?: never;
     post?: never;
@@ -1070,7 +1309,8 @@ export interface paths {
     delete: operations['deleteAgentThread'];
     options?: never;
     head?: never;
-    patch?: never;
+    /** Rename a conversation */
+    patch: operations['updateAgentThread'];
     trace?: never;
   };
   '/v1/agents/{agentId}/threads/{threadId}/messages': {
@@ -1142,10 +1382,343 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/v1/oauth/consent': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The consent page's view of an app's authorization request (the person signed in)
+     * @description The query is the authorization request the app sent to /oauth/authorize, unchanged (the platform redirects the browser to the web app's /connect/consent with it). A request that isn't valid is a 400 whose code starts with oauth_ (the page shows the reason and never sends the browser anywhere).
+     */
+    get: operations['getOAuthConsent'];
+    put?: never;
+    /**
+     * Allow or deny an app's authorization request; returns where to send the browser
+     * @description Allowing records the person's consent (a connected app, remembered until revoked) and returns the app's redirect URI with an authorization code; denying returns it with error=access_denied.
+     */
+    post: operations['decideOAuthConsent'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/me/oauth-grants': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The apps the caller connected (newest first) */
+    get: operations['listMyOAuthGrants'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/me/oauth-grants/{grantId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        grantId: components['parameters']['GrantIdParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Disconnect an app; its tokens stop working at once and its consent is forgotten */
+    delete: operations['revokeMyOAuthGrant'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/users/{userId}/oauth-grants': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        userId: components['parameters']['UserIdParam'];
+      };
+      cookie?: never;
+    };
+    /** The apps a person connected (platform admins and auditors) */
+    get: operations['adminListUserOAuthGrants'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/users/{userId}/oauth-grants/{grantId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        userId: components['parameters']['UserIdParam'];
+        grantId: components['parameters']['GrantIdParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Disconnect one of a person's apps (platform admins) */
+    delete: operations['adminRevokeUserOAuthGrant'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/settings/oauth-clients': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Trusted apps, which skip the consent screen (platform admins and auditors) */
+    get: operations['adminGetTrustedClients'];
+    /**
+     * Replace the trusted apps (platform admins)
+     * @description Only apps identified by a Client ID Metadata Document (an https URL with a path) can be trusted: a registered app's ID changes, and anyone can register any name. A trusted app skips the consent screen, never the sign-in.
+     */
+    put: operations['adminUpdateTrustedClients'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    PersonalWorkspaceSettings: {
+      /** @description People get a personal workspace when they sign in */
+      enabled: boolean;
+      /** Format: int32 */
+      maxAgents: number;
+      /**
+       * Format: int32
+       * @description Agents running at once
+       */
+      maxRunning: number;
+      /**
+       * Format: double
+       * @description Recorded; not enforced yet
+       */
+      monthlyBudgetUsd?: number | null;
+      /** Format: int64 */
+      revision: number;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    PersonalWorkspaceSettingsUpdate: {
+      enabled: boolean;
+      /** Format: int32 */
+      maxAgents: number;
+      /** Format: int32 */
+      maxRunning: number;
+      /** Format: double */
+      monthlyBudgetUsd?: number | null;
+    };
+    WorkspaceLimits: {
+      /** @enum {string} */
+      kind: 'team' | 'personal';
+      /** Format: int32 */
+      maxAgents?: number | null;
+      /** Format: int32 */
+      maxRunning?: number | null;
+      /** Format: double */
+      monthlyBudgetUsd?: number | null;
+      /** @description Which limits are this workspace's own (the others are the platform's defaults) */
+      overridden: string[];
+      /** Format: int64 */
+      agentCount: number;
+      /** Format: int64 */
+      runningCount: number;
+    };
+    WorkspaceLimitsUpdate: {
+      /** Format: int32 */
+      maxAgents?: number | null;
+      /** Format: int32 */
+      maxRunning?: number | null;
+      /** Format: double */
+      monthlyBudgetUsd?: number | null;
+    };
+    McpTool: {
+      name: string;
+      title?: string | null;
+      description?: string | null;
+    };
+    McpServer: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+      /** @description Names its tools for the model (mcp__<slug>__<tool>) */
+      slug: string;
+      description: string;
+      url: string;
+      /**
+       * @description proxy: agents call the platform, which adds the headers, allows only their tools and logs calls; direct: agents get the URL and headers
+       * @enum {string}
+       */
+      accessMode: 'proxy' | 'direct';
+      enabled: boolean;
+      /** @enum {string} */
+      visibility: 'all' | 'teams';
+      /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+      personal: boolean;
+      teams?: components['schemas']['ModelTeam'][] | null;
+      hasHeaders: boolean;
+      tools: components['schemas']['McpTool'][];
+      /** Format: date-time */
+      toolsRefreshedAt?: string | null;
+      /** @description Why the tools could not be read the last time */
+      toolsError?: string | null;
+      /** Format: int64 */
+      revision: number;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    McpServerCreate: {
+      name: string;
+      /** @description Default from the name; cannot change later */
+      slug?: string;
+      description?: string;
+      /** @description The server's Streamable HTTP endpoint */
+      url: string;
+      headers?: {
+        [key: string]: string;
+      };
+      /** @enum {string} */
+      accessMode?: 'proxy' | 'direct';
+      /** @enum {string} */
+      visibility?: 'all' | 'teams';
+      /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+      personal?: boolean;
+      teams?: string[];
+      enabled?: boolean;
+    };
+    McpServerUpdate: {
+      name?: string;
+      description?: string;
+      url?: string;
+      /** @description Replaces every header ({} removes them) */
+      headers?: {
+        [key: string]: string;
+      };
+      /** @enum {string} */
+      accessMode?: 'proxy' | 'direct';
+      /** @enum {string} */
+      visibility?: 'all' | 'teams';
+      /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+      personal?: boolean;
+      teams?: string[];
+      enabled?: boolean;
+    };
+    McpAttach: {
+      /** Format: uuid */
+      serverId: string;
+      /** @description Only these of its tools (absent - all) */
+      tools?: string[] | null;
+    };
+    McpAttached: {
+      /** Format: uuid */
+      serverId: string;
+      name: string;
+      slug: string;
+      tools?: string[] | null;
+    };
+    ClientMcpServer: {
+      /** @description Shown to the model; names the server's tools (mcpc__<slug>__<tool>) */
+      name: string;
+      url: string;
+      /** @description For example the user's Authorization header */
+      headers?: {
+        [key: string]: string;
+      };
+      /**
+       * Format: int32
+       * @description Default a day, at most a week
+       */
+      expiresInSeconds?: number;
+    };
+    ThreadMcpServer: {
+      name: string;
+      slug: string;
+      url: string;
+      /** Format: date-time */
+      expiresAt: string;
+    };
+    UsageRow: {
+      /** Format: date */
+      day?: string | null;
+      /**
+       * Format: uuid
+       * @description Absent when grouped by model - the platform's default model
+       */
+      modelId?: string | null;
+      modelName?: string | null;
+      providerName?: string | null;
+      /**
+       * Format: uuid
+       * @description Absent when grouped by agent - a deleted agent, or service-managed agents summed
+       */
+      agentId?: string | null;
+      agentName?: string | null;
+      /** @description Service-managed agents (one per app user) */
+      managed: boolean;
+      /** Format: uuid */
+      teamId?: string | null;
+      teamSlug?: string | null;
+      teamName?: string | null;
+      /** Format: int64 */
+      requests: number;
+      /** Format: int64 */
+      inputTokens: number;
+      /** Format: int64 */
+      outputTokens: number;
+      /** Format: int64 */
+      cacheReadTokens: number;
+      /** Format: int64 */
+      cacheWriteTokens: number;
+      /**
+       * Format: double
+       * @description Estimated from the models' current prices
+       */
+      costUsd: number;
+      /**
+       * Format: int64
+       * @description Requests of models without prices (not in costUsd)
+       */
+      unpricedRequests: number;
+    };
+    UsageReport: {
+      /** Format: date */
+      from: string;
+      /** Format: date */
+      to: string;
+      /** @enum {string} */
+      groupBy: 'day' | 'model' | 'agent' | 'team';
+      rows: components['schemas']['UsageRow'][];
+      total: components['schemas']['UsageRow'];
+    };
     ProviderType: {
       /** @enum {string} */
       id:
@@ -1277,6 +1850,8 @@ export interface components {
        * @enum {string}
        */
       visibility: 'all' | 'teams';
+      /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+      personal: boolean;
       teams?: components['schemas']['ModelTeam'][] | null;
       /** Format: int64 */
       revision: number;
@@ -1308,6 +1883,8 @@ export interface components {
       enabled?: boolean;
       /** @enum {string} */
       visibility?: 'all' | 'teams';
+      /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+      personal?: boolean;
       /** @description Team slugs or IDs (visibility teams) */
       teams?: string[];
     };
@@ -1332,6 +1909,8 @@ export interface components {
       enabled?: boolean;
       /** @enum {string} */
       visibility?: 'all' | 'teams';
+      /** @description Available in personal workspaces (when created, defaults to visibility = all) */
+      personal?: boolean;
       /** @description Replaces the teams (visibility teams) */
       teams?: string[];
     };
@@ -1396,6 +1975,10 @@ export interface components {
        * @description The model version 1 runs on (default the platform's default model)
        */
       modelId?: string;
+      /** @description MCP servers its agents get */
+      mcp?: components['schemas']['McpAttach'][];
+      /** @description Let apps give its agents MCP servers for a thread */
+      clientMcp?: boolean;
     };
     AgentTemplateUpdate: {
       name?: string;
@@ -1415,6 +1998,8 @@ export interface components {
       modelId?: string | null;
       modelName?: string | null;
       modelProviderName?: string | null;
+      mcp?: components['schemas']['McpAttached'][];
+      clientMcp?: boolean;
       /** Format: date-time */
       createdAt: string;
     };
@@ -1424,6 +2009,10 @@ export interface components {
       notes?: string;
       /** @description The model it runs on (a model's ID; "" for the platform's default; omitted keeps the current version's) */
       modelId?: string;
+      /** @description MCP servers its agents get (omitted keeps the current version's; [] none) */
+      mcp?: components['schemas']['McpAttach'][];
+      /** @description Let apps give its agents MCP servers for a thread (omitted keeps the current version's) */
+      clientMcp?: boolean;
     };
     AgentTemplateReview: {
       /** @enum {string} */
@@ -1522,14 +2111,36 @@ export interface components {
       createdAt: number;
       /**
        * Format: int64
-       * @description Unix milliseconds
+       * @description Unix milliseconds; moves when a message is sent and when a reply finishes
        */
       updatedAt: number;
+      /** @description A reply is in progress */
+      busy: boolean;
+      /**
+       * Format: int64
+       * @description When the last reply finished (Unix milliseconds)
+       */
+      lastReplyAt?: number | null;
+      /** @description Why the last reply failed (absent when it succeeded) */
+      lastError?: string | null;
+    };
+    AgentThreadUpdate: {
+      title: string;
+    };
+    AgentThreadEvent: {
+      /** Format: uuid */
+      agentId: string;
+      threadId: string;
+      deleted: boolean;
+      /** @description The thread now (absent when deleted) */
+      thread?: components['schemas']['AgentThread'] | null;
     };
     AgentMessageCreate: {
       text: string;
       /** @description Idempotency key; a repeated one is not submitted again */
       requestId?: string;
+      /** @description The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them. */
+      mcpServers?: components['schemas']['ClientMcpServer'][];
     };
     AgentMessageAccepted: {
       /** Format: int64 */
@@ -1575,13 +2186,15 @@ export interface components {
     /** @description Who made the change, resolved when the log is read */
     AuditActor: {
       /** @enum {string} */
-      kind: 'user' | 'api_key' | 'service_account' | 'system';
+      kind: 'user' | 'api_key' | 'service_account' | 'oauth' | 'system';
       /** Format: uuid */
       userId?: string;
       displayName?: string;
       email?: string;
       /** @description The API key used (api_key actors) */
       apiKeyName?: string;
+      /** @description The connected app the person acted through (oauth actors) */
+      oauthClient?: string;
     };
     AuditEntry: {
       /** Format: int64 */
@@ -1589,7 +2202,7 @@ export interface components {
       /** Format: date-time */
       occurredAt: string;
       /** @enum {string} */
-      actorKind: 'user' | 'api_key' | 'system';
+      actorKind: 'user' | 'api_key' | 'oauth' | 'system';
       /** Format: uuid */
       actorUserId?: string | null;
       /** Format: uuid */
@@ -1626,11 +2239,11 @@ export interface components {
     };
     AuditVia: {
       /**
-       * @description session: signed in to the web app; api_key: with an API key.
+       * @description session: signed in to the web app; api_key: with an API key; oauth: through an app the person connected.
        * @enum {string}
        */
-      kind: 'session' | 'api_key';
-      /** @description The API key's name, when known */
+      kind: 'session' | 'api_key' | 'oauth';
+      /** @description The API key's or the app's name, when known */
       name?: string;
     };
     AuthConfig: {
@@ -1641,6 +2254,7 @@ export interface components {
       devAccounts: components['schemas']['DevAccount'][];
       /** @description Where people request a new team (only platform admins create teams) */
       teamRequestUrl?: string | null;
+      connect?: components['schemas']['ConnectInfo'];
     };
     Capabilities: {
       platformAdmin: boolean;
@@ -1756,6 +2370,11 @@ export interface components {
       name: string;
       status: components['schemas']['TeamStatus'];
       role: components['schemas']['TeamRole'];
+      /**
+       * @description team: shared; personal: one person's own workspace
+       * @enum {string}
+       */
+      kind?: 'team' | 'personal';
     };
     Ok: {
       ok: boolean;
@@ -1778,6 +2397,11 @@ export interface components {
       name: string;
       description: string;
       status: components['schemas']['TeamStatus'];
+      /**
+       * @description team: shared; personal: one person's own workspace
+       * @enum {string}
+       */
+      kind?: 'team' | 'personal';
       revision: components['schemas']['Revision'];
       /** Format: date-time */
       createdAt: string;
@@ -1818,6 +2442,8 @@ export interface components {
        * @description Open owner invites (an owner invited by email who hasn't signed in yet)
        */
       ownerInvites: number;
+      /** @description A personal workspace's person */
+      personalOwner?: components['schemas']['MemberUser'] | null;
     };
     TeamUpdate: {
       name?: string;
@@ -1970,6 +2596,83 @@ export interface components {
       /** @description The full key, shown only now */
       secret: string;
     };
+    /** @description OAuth Connect, for apps that act as the people who connect them (see DESIGN.md) */
+    ConnectInfo: {
+      issuer: string;
+      authorizationEndpoint: string;
+      tokenEndpoint: string;
+      revocationEndpoint: string;
+      registrationEndpoint: string;
+      scopes: string[];
+    };
+    /** @description An app, as it identifies itself */
+    OAuthClientInfo: {
+      /** @description Its client_id */
+      id: string;
+      /**
+       * @description metadata: identified by a Client ID Metadata Document, whose host vouches for it; registered: it registered itself, so its name is unverified.
+       * @enum {string}
+       */
+      kind: 'metadata' | 'registered';
+      name: string;
+      /** @description The metadata document's host, or a registered app's (unverified) home page host */
+      host: string;
+      /** @description Its home page (https) */
+      uri?: string;
+      /** @description Its logo (https) */
+      logoUrl?: string;
+      /** @description On the platform's trusted list (skips the consent screen) */
+      trusted: boolean;
+    };
+    PersonalWorkspaceRef: {
+      slug: string;
+      name: string;
+    };
+    OAuthConsent: {
+      client: components['schemas']['OAuthClientInfo'];
+      redirectUri: string;
+      redirectHost: string;
+      scopes: string[];
+      /** @description The person already allowed this app */
+      remembered: boolean;
+      personalWorkspace?: components['schemas']['PersonalWorkspaceRef'];
+    };
+    OAuthConsentDecision: {
+      /** @description The authorization request's query string, as the consent page received it */
+      query: string;
+      /** @enum {string} */
+      decision: 'allow' | 'deny';
+    };
+    OAuthConsentResult: {
+      /** @description The app's redirect URI with a code, or with error=access_denied */
+      redirectUrl: string;
+    };
+    /** @description A connected app */
+    OAuthGrant: {
+      /** Format: uuid */
+      id: string;
+      client: components['schemas']['OAuthClientInfo'];
+      scopes: string[];
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      lastUsedAt?: string | null;
+    };
+    TrustedClient: {
+      /** @description The https URL of the app's Client ID Metadata Document */
+      clientId: string;
+      label?: string;
+    };
+    TrustedClients: {
+      clients: components['schemas']['TrustedClient'][];
+      /** Format: int64 */
+      revision: number;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    TrustedClientsUpdate: {
+      clients: components['schemas']['TrustedClient'][];
+    };
   };
   responses: {
     /** @description A page of audit entries, newest first */
@@ -2016,6 +2719,7 @@ export interface components {
     };
   };
   parameters: {
+    McpServerIdParam: string;
     ProviderIdParam: string;
     ModelIdParam: string;
     TemplateIdParam: string;
@@ -2044,6 +2748,7 @@ export interface components {
     SearchParam: string;
     /** @description Team slug or ID */
     TeamParam: string;
+    GrantIdParam: string;
     UserIdParam: string;
     ServiceAccountIdParam: string;
   };
@@ -2229,6 +2934,7 @@ export interface operations {
         };
       };
       401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
     };
   };
   getTeam: {
@@ -2586,6 +3292,7 @@ export interface operations {
         /** @description Case-insensitive substring match */
         q?: components['parameters']['SearchParam'];
         status?: components['schemas']['TeamStatus'];
+        kind?: 'team' | 'personal';
         /** @description nextCursor from the previous page */
         cursor?: components['parameters']['CursorParam'];
         limit?: components['parameters']['LimitParam'];
@@ -3868,6 +4575,500 @@ export interface operations {
       404: components['responses']['ErrorReply'];
     };
   };
+  getTeamUsage: {
+    parameters: {
+      query?: {
+        /** @description First day (UTC), default 29 days before `to` */
+        from?: string;
+        /** @description Last day (UTC, inclusive), default today */
+        to?: string;
+        groupBy?: 'day' | 'model' | 'agent';
+        /** @description Only this agent */
+        agentId?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The report */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['UsageReport'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminGetUsage: {
+    parameters: {
+      query?: {
+        /** @description First day (UTC), default 29 days before `to` */
+        from?: string;
+        /** @description Last day (UTC, inclusive), default today */
+        to?: string;
+        groupBy?: 'day' | 'team' | 'model';
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The report */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['UsageReport'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminListMcpServers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description MCP servers */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+    };
+  };
+  adminCreateMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['McpServerCreate'];
+      };
+    };
+    responses: {
+      /** @description Created server */
+      201: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  adminGetMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Server */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminDeleteMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['Ok'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  adminUpdateMcpServer: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path: {
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['McpServerUpdate'];
+      };
+    };
+    responses: {
+      /** @description Updated server */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
+    };
+  };
+  adminRefreshMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Server */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  listTeamMcpServers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description MCP servers published to the team */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  getThreadMcpServers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        threadId: components['parameters']['ThreadIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Servers that have not expired */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ThreadMcpServer'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  setThreadMcpServers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        threadId: components['parameters']['ThreadIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          servers: components['schemas']['ClientMcpServer'][];
+        };
+      };
+    };
+    responses: {
+      /** @description Servers of the thread */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ThreadMcpServer'][];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  streamAgentEvents: {
+    parameters: {
+      query?: {
+        agentId?: string;
+        once?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'text/event-stream': string;
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminGetPersonalSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Settings */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['PersonalWorkspaceSettings'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+    };
+  };
+  adminUpdatePersonalSettings: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PersonalWorkspaceSettingsUpdate'];
+      };
+    };
+    responses: {
+      /** @description Settings */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['PersonalWorkspaceSettings'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
+    };
+  };
+  adminSetWorkspaceLimits: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['WorkspaceLimitsUpdate'];
+      };
+    };
+    responses: {
+      /** @description The limits now */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['WorkspaceLimits'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
+    };
+  };
+  getWorkspaceLimits: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Limits (none for shared teams, for now) */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['WorkspaceLimits'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
   listAgents: {
     parameters: {
       query?: {
@@ -4205,6 +5406,38 @@ export interface operations {
       503: components['responses']['ErrorReply'];
     };
   };
+  updateAgentThread: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        threadId: components['parameters']['ThreadIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AgentThreadUpdate'];
+      };
+    };
+    responses: {
+      /** @description The thread */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['AgentThread'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
   sendAgentMessage: {
     parameters: {
       query?: never;
@@ -4296,6 +5529,219 @@ export interface operations {
       404: components['responses']['ErrorReply'];
       409: components['responses']['ErrorReply'];
       503: components['responses']['ErrorReply'];
+    };
+  };
+  getOAuthConsent: {
+    parameters: {
+      query?: {
+        client_id?: string;
+        redirect_uri?: string;
+        response_type?: string;
+        code_challenge?: string;
+        code_challenge_method?: string;
+        state?: string;
+        scope?: string;
+        resource?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The app, where it will send the person back, and what it asks for */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['OAuthConsent'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+    };
+  };
+  decideOAuthConsent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OAuthConsentDecision'];
+      };
+    };
+    responses: {
+      /** @description Where to send the browser */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['OAuthConsentResult'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  listMyOAuthGrants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Connected apps */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['OAuthGrant'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+    };
+  };
+  revokeMyOAuthGrant: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        grantId: components['parameters']['GrantIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components['responses']['OkReply'];
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminListUserOAuthGrants: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        userId: components['parameters']['UserIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Connected apps */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['OAuthGrant'][];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminRevokeUserOAuthGrant: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        userId: components['parameters']['UserIdParam'];
+        grantId: components['parameters']['GrantIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components['responses']['OkReply'];
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminGetTrustedClients: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Trusted apps */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['TrustedClients'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+    };
+  };
+  adminUpdateTrustedClients: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TrustedClientsUpdate'];
+      };
+    };
+    responses: {
+      /** @description Trusted apps */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['TrustedClients'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
     };
   };
 }

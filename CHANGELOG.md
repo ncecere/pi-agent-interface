@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The inbox follows the platform live.** One event stream per signed-in person (`GET /api/events`, a single shared
+  connection to the platform's `/v1/agents/events`, filtered to each person's own agents) updates conversation lists
+  as they change on any device, and the platform's own status (busy, last reply, last error) drives Working, Done and
+  Failed. Replies that finish while the app is closed show as Done when you come back. The per-conversation polling
+  only runs while the stream is down. Listing conversations no longer wakes agents, so every agent is listed.
 - **The inbox looks and reads like t3code's**: three-line rows (agent, title, time), status in the corner with an
   icon (Working with a timer, Done, Failed, Woke), a pin on pinned rows, compact times (now, 5m, 3h, 2d), soft
   hover and active tints, and hover actions Pin, Snooze and Settle. "Done" now means a finished reply you have not

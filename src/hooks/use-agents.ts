@@ -77,8 +77,24 @@ export function noteNewThread(
   queryClient.setQueryData<AgentThread[]>(threadsKey(agentId), (threads) => {
     if (threads?.some((thread) => thread.threadId === threadId)) return threads;
     const title = firstMessage.replace(/\s+/g, ' ').trim().slice(0, 80) || 'New conversation';
-    return [{ threadId, title, createdAt: now, updatedAt: now }, ...(threads ?? [])];
+    return [{ threadId, title, createdAt: now, updatedAt: now, busy: true }, ...(threads ?? [])];
   });
+}
+
+/**
+ * A message was just sent: its conversation is busy in the list now, before
+ * the platform's event says so, so its row does not flicker out of Working.
+ */
+export function markThreadBusy(
+  queryClient: ReturnType<typeof useQueryClient>,
+  agentId: string,
+  threadId: string,
+) {
+  queryClient.setQueryData<AgentThread[]>(threadsKey(agentId), (threads) =>
+    threads?.map((thread) =>
+      thread.threadId === threadId ? { ...thread, busy: true, updatedAt: Date.now() } : thread,
+    ),
+  );
 }
 
 /** A new conversation ID, in the form the platform accepts (1-64 of [A-Za-z0-9_-]). */

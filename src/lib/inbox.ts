@@ -1,9 +1,10 @@
 /**
  * The inbox: how conversations are sorted for a person, and what each one
  * needs from them. Modelled on t3code's thread sidebar (working, snoozed,
- * settled, pinned, archived), kept in this browser: the platform only knows a
- * conversation's title and when a message was last sent, never whether a
- * reply finished or whether anyone has seen it.
+ * settled, pinned, archived). The platform says whether a conversation is
+ * busy and when its last reply finished or failed (see withPlatform); what the
+ * person did with it (seen, pinned, snoozed, settled) is the app's own, kept
+ * in the browser and the person's account.
  *
  * Everything here is pure (the clock is a parameter), so the rules can be
  * tested; the store and the screens are in hooks/use-inbox.ts and
@@ -48,8 +49,58 @@ export const STALE_WORKING_MS = 2 * 60 * 60 * 1000;
 
 /** The thread as the platform lists it (see AgentThread). */
 export interface ThreadFacts {
-  /** When a message was last sent. */
+  /** When a message was last sent, or a reply finished. */
   updatedAt: number;
+  /** A reply is in progress. */
+  busy?: boolean;
+  /** When the last reply finished. */
+  lastReplyAt?: number | null;
+  /** Why the last reply failed; absent when it worked. */
+  lastError?: string | null;
+}
+
+/**
+ * The platform's clock and this browser's differ a little. Platform times are
+ * compared with the browser's (a visit, a send) with this much allowance.
+ */
+export const CLOCK_ALLOWANCE_MS = 30_000;
+
+/**
+ * What the inbox shows for a conversation: this browser's meta, with what the
+ * platform says added. Pure; nothing is saved.
+ *
+ * - Busy on the platform is working, whoever started it and wherever.
+ * - A reply the platform finished after the person last looked (and after
+ *   `since`, when this inbox began, so old conversations are not all new) is
+ *   finished, or failed with `lastError`. Replies this browser saw finish are
+ *   already in the meta, with this browser's own clock.
+ * - Working that the platform has since finished is over, even if this
+ *   browser never saw it end (a dropped turn, a closed tab).
+ */
+export function withPlatform(meta: ThreadMeta, thread: ThreadFacts, since: number): ThreadMeta {
+  if (thread.busy === undefined) return meta; // a platform without thread status
+  const replied = thread.lastReplyAt ?? undefined;
+  let out = meta;
+  if (thread.busy) {
+    if (meta.workingSince === undefined) out = { ...out, workingSince: thread.updatedAt };
+    return out;
+  }
+  if (
+    meta.workingSince !== undefined &&
+    replied !== undefined &&
+    replied >= meta.workingSince - CLOCK_ALLOWANCE_MS
+  )
+    out = { ...out, workingSince: undefined, awaitingUsers: undefined };
+  const unseen =
+    replied !== undefined &&
+    replied > since &&
+    replied > (meta.visitedAt ?? 0) + CLOCK_ALLOWANCE_MS &&
+    replied > (meta.completedAt ?? 0) + CLOCK_ALLOWANCE_MS;
+  if (unseen) {
+    out = { ...out, completedAt: replied };
+    if (thread.lastError) out.failedAt = replied;
+  }
+  return out;
 }
 
 /** When anything last happened that the person did not do themselves. */

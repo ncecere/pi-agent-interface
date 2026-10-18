@@ -110,8 +110,8 @@ describe('between devices', () => {
     const phone = new InboxStore('tim', memory());
     laptop.set('a/1', { pinnedAt: 1 });
     phone.set('a/2', { settledAt: 2 });
-    expect(phone.merge(laptop.exportAll())).toBe(true); // the phone has a/2, the laptop does not
-    expect(laptop.merge(phone.exportAll())).toBe(false);
+    expect(phone.merge(laptop.exportAll(), laptop.since)).toBe(true); // the phone has a/2, the laptop does not
+    expect(laptop.merge(phone.exportAll(), phone.since)).toBe(false);
     expect(laptop.get('a/2')).toMatchObject({ settledAt: 2 });
     expect(phone.get('a/1')).toMatchObject({ pinnedAt: 1 });
   });
@@ -169,5 +169,27 @@ describe('inboxActionsFor', () => {
     actions.visit('a/1'); // not throttled: there is something new to see
     const meta = store.get('a/1')!;
     expect(meta.visitedAt!).toBeGreaterThanOrEqual(meta.completedAt!);
+  });
+});
+
+describe('when the inbox began', () => {
+  it('is set once, kept, and the earliest of two devices wins', () => {
+    const disk = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => disk.get(key) ?? null,
+      setItem: (key: string, value: string) => void disk.set(key, value),
+      removeItem: (key: string) => void disk.delete(key),
+    } as unknown as Storage;
+    const first = new InboxStore('tim', storage);
+    const since = first.since;
+    expect(new InboxStore('tim', storage).since).toBe(since); // kept across loads
+    // The account knows an earlier start: it wins, and this browser keeps it.
+    expect(first.merge({}, since - 1000)).toBe(false);
+    expect(first.since).toBe(since - 1000);
+    expect(new InboxStore('tim', storage).since).toBe(since - 1000);
+    // The account knows none (or a later one): this browser's should be sent.
+    expect(first.merge({}, undefined)).toBe(true);
+    expect(first.merge({}, since + 5000)).toBe(true);
+    expect(first.since).toBe(since - 1000);
   });
 });

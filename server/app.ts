@@ -15,6 +15,7 @@ import {
 } from './agent-settings.ts';
 import { type Branding, defaultBranding, parseBranding } from './branding.ts';
 import type { Config } from './config.ts';
+import { EventsHub } from './events-hub.ts';
 import { Platform, type PlatformAgent, PlatformError } from './platform.ts';
 import {
   type LoginState,
@@ -46,6 +47,10 @@ const THREAD_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_BODY_BYTES = 256 * 1024;
 /** Open conversation streams one person may have at once; each keeps an agent awake. */
 export const MAX_STREAMS_PER_USER = 8;
+/** Event streams one person may hold: one per open tab. */
+export const MAX_EVENT_STREAMS_PER_USER = 6;
+/** A comment on the event stream this often keeps proxies from closing it as idle. */
+const KEEP_ALIVE_MS = 15_000;
 
 /**
  * Ends a relayed stream cleanly when the platform closes it (its proxy's idle
@@ -100,9 +105,13 @@ export function safeNext(value: string | undefined | null): string {
     : '/';
 }
 
-export function createApp(config: Config, deps: { store: Store; platform?: Platform }) {
+export function createApp(
+  config: Config,
+  deps: { store: Store; platform?: Platform; events?: EventsHub },
+) {
   const { store } = deps;
   const platform = deps.platform ?? new Platform(config);
+  const events = deps.events ?? new EventsHub(platform);
   const app = new Hono<Env>();
   const secure = config.appUrl.protocol === 'https:';
   const sessionCookie = secure ? '__Host-pai_session' : 'pai_session';
@@ -934,6 +943,66 @@ export function createApp(config: Config, deps: { store: Store; platform?: Platf
     // Anything that is not a stream (an error, a refusal) holds nothing open.
     if (!response.headers.get('Content-Type')?.startsWith('text/event-stream')) release();
     return response;
+  });
+
+  /**
+   * The person's own conversations as they change: created, renamed, started,
+   * finished, deleted (see events-hub.ts). `ready` when connected; `resync`
+   * when events may have been missed and the lists should be read again.
+   */
+  const eventStreams = new Map<string, number>();
+  app.get('/api/events', requireSession, (c) => {
+    const user = c.get('session').user;
+    const open = eventStreams.get(user.id) ?? 0;
+    if (open >= MAX_EVENT_STREAMS_PER_USER)
+      return fail(c, 429, 'too_many_streams', 'Too many tabs are open at once.');
+    eventStreams.set(user.id, open + 1);
+    const encoder = new TextEncoder();
+    let cleanup: () => void = () => {};
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let closed = false;
+        const write = (text: string) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(text));
+          } catch {
+            cleanup();
+          }
+        };
+        const unsubscribe = events.subscribe({
+          user,
+          send: (event, data) => write(`event: ${event}\ndata: ${data}\n\n`),
+        });
+        const keepAlive = setInterval(() => write(': keep-alive\n\n'), KEEP_ALIVE_MS);
+        cleanup = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(keepAlive);
+          unsubscribe();
+          const left = (eventStreams.get(user.id) ?? 1) - 1;
+          if (left <= 0) eventStreams.delete(user.id);
+          else eventStreams.set(user.id, left);
+          try {
+            controller.close();
+          } catch {
+            // Already closed by the reader going away.
+          }
+        };
+        c.req.raw.signal.addEventListener('abort', () => cleanup(), { once: true });
+        write('event: ready\ndata: {}\n\n');
+      },
+      cancel() {
+        cleanup();
+      },
+    });
+    return new Response(body, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-store',
+        'X-Accel-Buffering': 'no',
+      },
+    });
   });
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'Not found'));

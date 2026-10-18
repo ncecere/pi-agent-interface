@@ -33,6 +33,11 @@ const TOMBSTONE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class InboxStore {
   private snapshot: Record<string, ThreadMeta>;
+  /**
+   * When this person's inbox began: replies the platform finished before it
+   * are not new (see withPlatform). The earliest of every device's.
+   */
+  private sinceValue: number;
   private readonly listeners = new Set<() => void>();
   private readonly name: string;
 
@@ -41,27 +46,53 @@ export class InboxStore {
     private readonly backing: Storage | null = storage(),
   ) {
     this.name = `${INBOX}${userId}`;
-    this.snapshot = this.load();
+    const loaded = this.load();
+    this.snapshot = loaded.threads;
+    this.sinceValue = loaded.since ?? Date.now();
+    if (loaded.since === undefined) this.write();
   }
 
-  private load(): Record<string, ThreadMeta> {
+  private load(): { threads: Record<string, ThreadMeta>; since?: number } {
     try {
       const parsed = JSON.parse(this.backing?.getItem(this.name) ?? 'null') as {
         v?: number;
         threads?: Record<string, ThreadMeta>;
+        since?: number;
       } | null;
       if (parsed?.v === 1 && parsed.threads && typeof parsed.threads === 'object')
-        return parsed.threads;
+        return {
+          threads: parsed.threads,
+          since: typeof parsed.since === 'number' ? parsed.since : undefined,
+        };
     } catch {
       // Unreadable: start again.
     }
-    return {};
+    return { threads: {} };
+  }
+
+  /** When this person's inbox began (the earliest any device knows of). */
+  get since(): number {
+    return this.sinceValue;
+  }
+
+  private write() {
+    try {
+      this.backing?.setItem(
+        this.name,
+        JSON.stringify({ v: 1, threads: this.snapshot, since: this.sinceValue }),
+      );
+    } catch {
+      // Storage full or blocked: the state lasts for this page only.
+    }
   }
 
   private commit(next: Record<string, ThreadMeta>) {
     this.snapshot = next;
     try {
-      this.backing?.setItem(this.name, JSON.stringify({ v: 1, threads: next }));
+      this.backing?.setItem(
+        this.name,
+        JSON.stringify({ v: 1, threads: next, since: this.sinceValue }),
+      );
     } catch {
       // Storage full or blocked: the state lasts for this page only.
     }
@@ -76,7 +107,9 @@ export class InboxStore {
     // Open tabs follow each other.
     const follow = (event: StorageEvent) => {
       if (event.key !== null && event.key !== this.name) return;
-      this.snapshot = this.load();
+      const loaded = this.load();
+      this.snapshot = loaded.threads;
+      if (loaded.since !== undefined) this.sinceValue = Math.min(this.sinceValue, loaded.since);
       for (const each of this.listeners) each();
     };
     if (typeof window !== 'undefined') window.addEventListener('storage', follow);
@@ -108,9 +141,14 @@ export class InboxStore {
    * wins. Returns whether this browser holds anything newer than what came in
    * (then it should be sent back).
    */
-  merge(remote: Record<string, ThreadMeta>): boolean {
+  merge(remote: Record<string, ThreadMeta>, remoteSince?: number): boolean {
     let changed = false;
     let localNewer = false;
+    // The earlier start wins; an account without one learns this browser's.
+    if (remoteSince !== undefined && remoteSince < this.sinceValue) {
+      this.sinceValue = remoteSince;
+      changed = true;
+    } else if (remoteSince !== this.sinceValue) localNewer = true;
     const all = { ...this.snapshot };
     for (const key of new Set([...Object.keys(all), ...Object.keys(remote)])) {
       const mine = all[key];

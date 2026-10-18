@@ -1,6 +1,11 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createApp, MAX_STREAMS_PER_USER, tolerant } from '../../server/app.ts';
+import {
+  createApp,
+  MAX_EVENT_STREAMS_PER_USER,
+  MAX_STREAMS_PER_USER,
+  tolerant,
+} from '../../server/app.ts';
 import type { Config } from '../../server/config.ts';
 import {
   agentKeyFor,
@@ -320,6 +325,31 @@ describe('streams', () => {
     expect((await reader.read()).done).toBe(false);
     expect((await reader.read()).done).toBe(true); // closed, not an error
     expect(ended).toBe(1);
+  });
+
+  it("streams the person's conversation events, and only with a session", async () => {
+    expect((await app.request('/api/events')).status).toBe(401);
+    const { cookie } = await signIn('tim');
+    const response = await app.request('/api/events', { headers: { Cookie: cookie } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const reader = response.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    expect(first).toBe('event: ready\ndata: {}\n\n');
+    await reader.cancel();
+  });
+
+  it('caps event streams per person (tabs)', async () => {
+    const { cookie } = await signIn('tim');
+    const held = [];
+    for (let i = 0; i < MAX_EVENT_STREAMS_PER_USER; i++)
+      held.push(await app.request('/api/events', { headers: { Cookie: cookie } }));
+    expect((await app.request('/api/events', { headers: { Cookie: cookie } })).status).toBe(429);
+    await held[0]!.body!.cancel();
+    const again = await app.request('/api/events', { headers: { Cookie: cookie } });
+    expect(again.status).toBe(200);
+    await again.body!.cancel();
+    for (const response of held.slice(1)) await response.body!.cancel();
   });
 
   it('never caches API answers', async () => {

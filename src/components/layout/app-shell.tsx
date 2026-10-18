@@ -7,6 +7,7 @@ import { TopBar } from '~/components/layout/top-bar';
 import { useCommandPalette } from '~/hooks/use-command-palette';
 import { useGlobalShortcuts } from '~/hooks/use-global-shortcuts';
 import { useInboxSync, useInboxTracker } from '~/hooks/use-inbox';
+import { usePlatformEvents } from '~/hooks/use-platform-events';
 import { focusComposerSoon, focusWhenReady } from '~/lib/focus-after-navigation';
 import { cn } from '~/lib/utils';
 
@@ -30,7 +31,9 @@ const DOCKED_SIDEBAR = '(min-width: 1024px)';
 const DRAWER = 'aside[aria-label="Conversation sidebar"]';
 
 export function AppShell({ children }: { children: ReactNode }) {
-  // Replies still being written in conversations that are not open are followed here.
+  // Conversations as they change on the platform: lists and inbox, live.
+  usePlatformEvents();
+  // When that stream is down, replies being written elsewhere are checked on here.
   useInboxTracker();
   // Pinned, snoozed, done and read follow the person to every device.
   useInboxSync();

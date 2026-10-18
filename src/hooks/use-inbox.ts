@@ -1,4 +1,4 @@
-import { useQueries } from '@tanstack/react-query';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
@@ -12,6 +12,7 @@ import {
 } from '~/api/client';
 import { chattable, threadsKey, useAgents } from '~/hooks/use-agents';
 import { useCurrentUser } from '~/hooks/use-session';
+import { isEventsLive } from '~/lib/events-live';
 import {
   bucketOf,
   change,
@@ -28,6 +29,7 @@ import {
   statusOf,
   type ThreadMeta,
   threadKey,
+  withPlatform,
 } from '~/lib/inbox';
 import {
   type InboxStore,
@@ -155,8 +157,6 @@ function useNow(wakeAt: number | null): number {
 
 // ── The rows ────────────────────────────────────────────────────────────────────────────────
 
-/** A sleeping agent's conversations are only fetched (which wakes it) when there are few agents or it is wanted. */
-const LIST_ALL_UP_TO = 2;
 /** How long an unlisted conversation's state is kept: a new one may not be listed yet. */
 const PRUNE_GRACE_MS = 10 * 60_000;
 
@@ -174,16 +174,15 @@ export function useInbox(): Inbox {
   const userId = useCurrentUser()?.user.id;
   const store = useInboxStore();
   const metas = useInboxMetas();
+  const since = store?.since ?? 0;
   const agentsQuery = useAgents();
   const agents = useMemo(() => chattable(agentsQuery.data), [agentsQuery.data]);
-  const openAgent = (useParams({ strict: false }) as { agentId?: string }).agentId;
 
   const lists = useQueries({
     queries: agents.map((agent) => ({
       queryKey: threadsKey(agent.id),
       queryFn: () => api.get<AgentThread[]>(agentPath(agent.id, '/threads')),
-      // Listing wakes an agent: with many agents only the awake and the open ones are listed.
-      enabled: agents.length <= LIST_ALL_UP_TO || agent.running || agent.id === openAgent,
+      // Listing reads the platform's record of threads; it no longer wakes the agent.
       staleTime: 15_000,
       placeholderData: () => (userId ? readThreadCache(userId, agent.id) : undefined),
     })),
@@ -219,7 +218,8 @@ export function useInbox(): Inbox {
       if (!agent) return;
       for (const thread of list.data ?? []) {
         const key = threadKey(agent.id, thread.threadId);
-        const meta = metas[key] ?? {};
+        // What this browser knows, with what the platform says (busy, finished, failed).
+        const meta = withPlatform(metas[key] ?? {}, thread, since);
         out.push({
           key,
           agentId: agent.id,
@@ -272,13 +272,25 @@ const POLL_HIDDEN_MS = 20_000;
  * those conversations (and only those) for the end of the work, and records
  * it, so the sidebar can say "New reply". Mounted once, in the app shell.
  */
+/** Whether the platform's list says this conversation is busy (the event stream keeps it current). */
+function platformBusy(queryClient: ReturnType<typeof useQueryClient>, key: string): boolean {
+  const [agentId, threadId] = key.split('/');
+  if (!agentId) return false;
+  return Boolean(
+    queryClient
+      .getQueryData<AgentThread[]>(threadsKey(agentId))
+      ?.find((thread) => thread.threadId === threadId)?.busy,
+  );
+}
+
 export function useInboxTracker() {
+  const queryClient = useQueryClient();
   const store = useInboxStore();
   const actions = useInboxActions();
   const open = useParams({ strict: false }) as { agentId?: string; threadId?: string };
   const openKey = open.agentId && open.threadId ? threadKey(open.agentId, open.threadId) : null;
-  const latest = useRef({ store, actions, openKey });
-  latest.current = { store, actions, openKey };
+  const latest = useRef({ store, actions, openKey, queryClient });
+  latest.current = { store, actions, openKey, queryClient };
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -295,6 +307,9 @@ export function useInboxTracker() {
             meta.workingSince !== undefined &&
             (key !== openKey || now - meta.workingSince > DROPPED_AFTER_MS),
         )
+        // With the platform's event stream up, a reply the platform says is in
+        // progress will be heard ending; only disagreements are asked about.
+        .filter(([key]) => !isEventsLive() || !platformBusy(latest.current.queryClient, key))
         .map(([key, meta]) => [key, meta] as const);
       await Promise.all(
         keys.map(async ([key, meta]) => {
@@ -333,9 +348,16 @@ export function useInboxTracker() {
 const PULL_EVERY_MS = 60_000;
 const PUSH_AFTER_MS = 1_500;
 
-function parseRemoteInbox(value: unknown): Record<string, ThreadMeta> {
-  const threads = (value as { v?: number; threads?: unknown } | null)?.threads;
-  return threads && typeof threads === 'object' ? (threads as Record<string, ThreadMeta>) : {};
+function parseRemoteInbox(value: unknown): {
+  threads: Record<string, ThreadMeta>;
+  since?: number;
+} {
+  const doc = value as { v?: number; threads?: unknown; since?: unknown } | null;
+  const threads = doc?.threads;
+  return {
+    threads: threads && typeof threads === 'object' ? (threads as Record<string, ThreadMeta>) : {},
+    since: typeof doc?.since === 'number' ? doc.since : undefined,
+  };
 }
 
 /**
@@ -358,7 +380,7 @@ export function useInboxSync() {
         const prefs = await api.get<Record<string, unknown>>('/api/me/prefs');
         if (stopped) return;
         const remote = parseRemoteInbox(prefs.inbox);
-        const localNewer = store.merge(remote);
+        const localNewer = store.merge(remote.threads, remote.since);
         // Nothing newer here: no need to send it back.
         if (!localNewer) lastPushed.current = JSON.stringify(store.exportAll());
         pulled.current = true;
@@ -387,7 +409,9 @@ export function useInboxSync() {
     const timer = setTimeout(() => {
       lastPushed.current = body;
       void api
-        .put('/api/me/prefs/inbox', { value: { v: 1, threads: JSON.parse(body) } })
+        .put('/api/me/prefs/inbox', {
+          value: { v: 1, threads: JSON.parse(body), since: store.since },
+        })
         .catch(() => {
           lastPushed.current = null; // try again with the next change or pull
         });
