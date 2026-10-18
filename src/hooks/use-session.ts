@@ -3,6 +3,7 @@ import {
   ApiError,
   type AuthConfig,
   api,
+  type FeatureId,
   type Me,
   noteUnauthorized,
   setCsrfToken,
@@ -65,6 +66,11 @@ export function useMe() {
 /** The signed-in user; only below the authenticated route. */
 export function useCurrentUser(): Me | undefined {
   return useMe().data ?? undefined;
+}
+
+/** Whether an optional feature is on (Admin → Features). Off until known. */
+export function useFeature(id: FeatureId): boolean {
+  return useCurrentUser()?.features?.[id] ?? false;
 }
 
 export function useAuthConfig() {

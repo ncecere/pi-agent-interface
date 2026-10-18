@@ -42,7 +42,7 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `APP_URL` | Where people open the app, e.g. `https://chat.example.com`. Its origin is the only one allowed to write. |
 | `PLATFORM_URL`, `PLATFORM_TEAM`, `PLATFORM_SERVICE_KEY` | The platform, the team, and the service account key. Never sent to browsers. |
 | `AGENT_TEMPLATE`, `AGENT_NAME` | The platform template each person's assistant is made from, and what the app calls it. |
-| `AGENT_MODEL` | The model every assistant runs on, by name or id, from those published to the team. New assistants are created on it and existing ones moved to it (from their next start). Only a model currently published to the team is ever set, since an agent on an unpublished model would not start. Empty: the platform decides. |
+| `AGENT_MODEL` | The default model, by name or id, until an administrator picks one in Admin → Agents (which wins). Only a model currently published to the team is ever set, since an agent on an unpublished model would not start. Empty: the platform decides. |
 | `DATABASE_URL` | The chat app's own Postgres (people, roles, settings, preferences). Migrated on start. Conversations stay on the platform. |
 | `INITIAL_ADMIN_EMAIL` | Becomes an administrator on signing in while there is no administrator. After that, admins promote others. |
 | `SESSION_SECRET` | 32+ characters (`openssl rand -base64 48`). Encrypts sessions; changing it signs everyone out. |
@@ -50,6 +50,7 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `DEV_AUTH` | `true` enables the development accounts tim, bob and sally. Refused unless `APP_URL` is loopback. |
 | `HOST`, `PORT` | Where to listen (default `127.0.0.1:5178`; the container uses `0.0.0.0:8080`). |
 | `SESSION_TTL_HOURS` | Default 168. |
+| `DISABLED_FEATURES` | Optional features to turn off for good, comma-separated (e.g. `usage`). See below. |
 
 The server refuses to start, naming every problem, if the configuration is incomplete or unsafe: a platform or
 provider that is not https (outside localhost), development accounts on a public address, a short session secret.
@@ -93,6 +94,28 @@ pnpm gen:api                 # platform types from ../golang/pi-durable-platform
 **Locked out?** Make someone an administrator from the server: `pnpm admin:promote <email>` (in a container,
 `node dist-server/cli.js promote <email>`). They must have signed in once.
 
+## Settings, and where each kind lives
+
+| Kind | Where | Who changes it | Examples |
+|---|---|---|---|
+| **Deployment** | Environment variables (above) | Whoever runs the server; a restart applies it | Platform URL and key, sign-in, `AGENT_MODEL` as a fallback |
+| **Instance settings** | The app's database; Admin → Agents, Branding | Administrators, at once, in the audit log | Default model, provided agents, the name and logo |
+| **Optional features** | The app's database; Admin → Features | Administrators, at once, in the audit log | `usage`: usage per person in Admin |
+| **Personal preferences** | The person's account; Settings | Each person, for themselves, on every device | Theme, avatar style, the inbox (pinned, snoozed, read) |
+
+**Optional features** are whole parts of the app an instance may do without. Each is declared once in
+`server/features.ts` with a label, a description and its default. The server enforces it (its routes answer 404 while
+it is off), and `/api/me` tells the browser which are on, so their screens and menu entries are hidden
+(`useFeature()`). A deployment that cannot support one (a platform without the API it needs) lists it in
+`DISABLED_FEATURES`; administrators then see it locked off. To add one: declare it in `features.ts`, guard its routes
+with `feature(id)` in `server/app.ts`, and hide its screens with `useFeature(id)`.
+
+Features today:
+
+| Feature | Default | What it does |
+|---|---|---|
+| `usage` | on | Admin → Usage: requests, tokens and an estimated cost per person for the last 7, 30 or 90 days, from the platform's usage report (`GET /v1/teams/{team}/usage`). Agents that name no person here are summed as "Other agents". Cost appears once the platform has prices for the models. |
+
 ## How it works
 
 - `server/`: Hono on Node. Sign-in (`/auth/login` and `/auth/callback` for OIDC, `/auth/dev`), and `/api/*`, which
@@ -102,9 +125,13 @@ pnpm gen:api                 # platform types from ../golang/pi-durable-platform
 - `src/lib/chat-view.ts`: turns the platform's `ChatView` into AI SDK `UIMessage`s so Open Chat Interface's
   renderers draw it. Unchanged messages keep their identity, so only the reply being written re-renders, and a
   message keeps its identity from "sent" to "in the transcript", so nothing re-mounts as the reply arrives.
-- `src/lib/inbox.ts`, `src/hooks/use-inbox.ts`: the inbox's rules (pure, tested) and its store. The platform
-  records only a title and when a message was last sent, so the app notices replies finishing itself: from the open
-  conversation's stream, and by polling conversations that were still working when you left them.
+- `server/events-hub.ts`, `src/hooks/use-platform-events.ts`: one connection to the platform's event stream for
+  the whole server, each event passed only to the person whose agent it is (`GET /api/events`). Conversation lists
+  update in place, from any device.
+- `src/lib/inbox.ts`, `src/hooks/use-inbox.ts`: the inbox's rules (pure, tested) and its store. The platform says
+  whether a conversation is busy and when its last reply finished or failed; what the person did with it (seen,
+  pinned, snoozed, settled) is the app's, synced to their account. Polling only happens while the event stream is
+  down.
 - `src/components/agent/avatar/`: the animated avatars.
 
 See [CHANGELOG.md](CHANGELOG.md) for what is and is not in this release, and [NOTICE.md](NOTICE.md) for where the

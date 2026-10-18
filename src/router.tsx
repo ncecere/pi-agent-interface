@@ -181,6 +181,14 @@ const adminChildren = [
     lazyRouteComponent(() => import('~/routes/admin/branding'), 'AdminBrandingPage'),
   ),
   adminPage(
+    '/admin/features',
+    lazyRouteComponent(() => import('~/routes/admin/features'), 'AdminFeaturesPage'),
+  ),
+  adminPage(
+    '/admin/usage',
+    lazyRouteComponent(() => import('~/routes/admin/usage'), 'AdminUsagePage'),
+  ),
+  adminPage(
     '/admin/audit',
     lazyRouteComponent(() => import('~/routes/admin/audit'), 'AdminAuditPage'),
   ),

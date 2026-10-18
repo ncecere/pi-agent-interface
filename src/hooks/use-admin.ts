@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '~/api/client';
+import { api, type FeatureId } from '~/api/client';
 import { AUTH_CONFIG_KEY, ME_KEY } from '~/hooks/use-session';
 
 export interface AdminPerson {
@@ -148,3 +148,61 @@ export function useSaveProvided() {
     },
   });
 }
+
+// ── Optional features (server/features.ts) ──────────────────────────────────────
+
+export interface AdminFeature {
+  id: FeatureId;
+  label: string;
+  description: string;
+  default: boolean;
+  enabled: boolean;
+  /** Turned off by the deployment (DISABLED_FEATURES): cannot be turned on here. */
+  locked: boolean;
+}
+
+export const useFeaturesAdmin = () =>
+  useQuery({
+    queryKey: ['admin', 'features'],
+    queryFn: () => api.get<AdminFeature[]>('/api/admin/features'),
+  });
+
+export function useSaveFeatures() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (change: Partial<Record<FeatureId, boolean>>) =>
+      api.put('/api/admin/settings/features', change),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'features'] });
+      void queryClient.invalidateQueries({ queryKey: ME_KEY });
+    },
+  });
+}
+
+// ── Usage (the `usage` feature) ──────────────────────────────────────────────────
+
+export interface UsageTotals {
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  unpricedRequests: number;
+}
+
+export interface UsageReport {
+  from: string;
+  to: string;
+  days: number;
+  people: Array<UsageTotals & { personId: string; name: string; email: string; agents: number }>;
+  /** Agents that name nobody here: made in the team by hand, deleted, or a person no longer here. */
+  unassigned: UsageTotals | null;
+  total: UsageTotals;
+  byDay: Array<UsageTotals & { day: string }>;
+}
+
+export const useUsage = (days: number) =>
+  useQuery({
+    queryKey: ['admin', 'usage', days],
+    queryFn: () => api.get<UsageReport>(`/api/admin/usage?days=${days}`),
+    placeholderData: (previous) => previous,
+  });

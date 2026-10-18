@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Optional features** (Admin → Features): parts of the app an instance can do without, declared in
+  `server/features.ts`, enforced by the server, hidden in the browser when off, and lockable off with
+  `DISABLED_FEATURES`. The README now says where each kind of setting lives.
+- **Usage** (an optional feature, on by default): Admin → Usage shows requests, tokens and an estimated cost per
+  person over 7, 30 or 90 days, with tokens per day, from the platform's usage report.
 - **Rename conversations**: Rename… in a conversation's menu (or right-click). The new name shows at once and on
   every device.
 - **The inbox follows the platform live.** One event stream per signed-in person (`GET /api/events`, a single shared

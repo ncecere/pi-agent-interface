@@ -2,25 +2,37 @@ import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import {
   ArrowLeft,
   Bot,
+  ChartColumn,
   LayoutDashboard,
   type LucideIcon,
   Palette,
   ScrollText,
+  ToggleRight,
   Users,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { FeatureId } from '~/api/client';
 import { Wordmark } from '~/components/brand/wordmark';
 import { SkipLink } from '~/components/layout/skip-link';
 import { ThemeMenu } from '~/components/layout/theme-menu';
-import { useAuthConfig } from '~/hooks/use-session';
+import { useAuthConfig, useCurrentUser } from '~/hooks/use-session';
 import { cn } from '~/lib/utils';
 
 /** Administration, as Open Chat Interface lays it out: a grouped page list beside the page. */
 
 interface NavItem {
-  to: '/admin' | '/admin/people' | '/admin/agents' | '/admin/branding' | '/admin/audit';
+  to:
+    | '/admin'
+    | '/admin/people'
+    | '/admin/agents'
+    | '/admin/branding'
+    | '/admin/features'
+    | '/admin/usage'
+    | '/admin/audit';
   label: string;
   icon: LucideIcon;
+  /** Shown only while this optional feature is on. */
+  feature?: FeatureId;
 }
 
 const OVERVIEW: NavItem = { to: '/admin', label: 'Overview', icon: LayoutDashboard };
@@ -31,9 +43,16 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     items: [
       { to: '/admin/agents', label: 'Agents', icon: Bot },
       { to: '/admin/branding', label: 'Branding', icon: Palette },
+      { to: '/admin/features', label: 'Features', icon: ToggleRight },
     ],
   },
-  { label: 'Records', items: [{ to: '/admin/audit', label: 'Audit log', icon: ScrollText }] },
+  {
+    label: 'Records',
+    items: [
+      { to: '/admin/usage', label: 'Usage', icon: ChartColumn, feature: 'usage' },
+      { to: '/admin/audit', label: 'Audit log', icon: ScrollText },
+    ],
+  },
 ];
 
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
@@ -59,6 +78,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 }
 
 function AdminNav({ pathname }: { pathname: string }) {
+  const features = useCurrentUser()?.features ?? {};
   return (
     <nav aria-label="Administration" className="flex flex-col gap-3">
       <NavLink item={OVERVIEW} pathname={pathname} />
@@ -68,11 +88,13 @@ function AdminNav({ pathname }: { pathname: string }) {
             {section.label}
           </p>
           <ul className="flex flex-col gap-px">
-            {section.items.map((item) => (
-              <li key={item.to}>
-                <NavLink item={item} pathname={pathname} />
-              </li>
-            ))}
+            {section.items
+              .filter((item) => !item.feature || features[item.feature])
+              .map((item) => (
+                <li key={item.to}>
+                  <NavLink item={item} pathname={pathname} />
+                </li>
+              ))}
           </ul>
         </div>
       ))}

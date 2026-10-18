@@ -16,6 +16,13 @@ import {
 import { type Branding, defaultBranding, parseBranding } from './branding.ts';
 import type { Config } from './config.ts';
 import { EventsHub } from './events-hub.ts';
+import {
+  FEATURE_IDS,
+  FEATURES,
+  type FeatureId,
+  parseFeatureChange,
+  resolveFeatures,
+} from './features.ts';
 import { Platform, type PlatformAgent, PlatformError } from './platform.ts';
 import {
   type LoginState,
@@ -34,6 +41,7 @@ import {
   type Store,
   StoreError,
 } from './store.ts';
+import { lastDays, usageByDay, usageByPerson } from './usage.ts';
 
 /** Fixed development accounts (DEV_AUTH, loopback only). */
 export const DEV_ACCOUNTS = [
@@ -114,6 +122,10 @@ export function createApp(
   const { store } = deps;
   const platform = deps.platform ?? new Platform(config);
   const events = deps.events ?? new EventsHub(platform);
+  const disabledFeatures = config.disabledFeatures ?? [];
+  /** What is on now: defaults, the administrators' choices, the environment's locks. */
+  const features = async () => resolveFeatures(await store.setting('features'), disabledFeatures);
+  const feature = async (id: FeatureId) => (await features())[id];
   const app = new Hono<Env>();
   const secure = config.appUrl.protocol === 'https:';
   const sessionCookie = secure ? '__Host-pai_session' : 'pai_session';
@@ -300,6 +312,7 @@ export function createApp(
       data: {
         user: { id: person.id, name: person.name, email: person.email, role: person.role },
         csrfToken: session.csrf,
+        features: await features(),
       },
     });
   });
@@ -565,6 +578,66 @@ export function createApp(
       ];
       await store.setSetting('provided', { agents: value }, c.get('person').id);
       return c.json({ data: value });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
+  // ── Optional features (features.ts) ─────────────────────────────────────────
+
+  app.get('/api/admin/features', async (c) => {
+    const on = await features();
+    return c.json({
+      data: FEATURE_IDS.map((id) => ({
+        id,
+        label: FEATURES[id].label,
+        description: FEATURES[id].description,
+        default: FEATURES[id].default,
+        enabled: on[id],
+        locked: disabledFeatures.includes(id),
+      })),
+    });
+  });
+
+  app.put('/api/admin/settings/features', async (c) => {
+    const parsed = parseFeatureChange(await c.req.json().catch(() => null), disabledFeatures);
+    if ('problems' in parsed) return invalid(c, parsed.problems);
+    const saved = ((await store.setting('features')) ?? {}) as Record<string, unknown>;
+    await store.setSetting('features', { ...saved, ...parsed.value }, c.get('person').id);
+    return c.json({ data: await features() });
+  });
+
+  /** Usage per person over the last 7, 30 or 90 days (the `usage` feature). */
+  app.get('/api/admin/usage', async (c) => {
+    if (!(await feature('usage'))) return fail(c, 404, 'feature_off', 'Usage is turned off.');
+    const days = [7, 30, 90].includes(Number(c.req.query('days')))
+      ? Number(c.req.query('days'))
+      : 30;
+    const { from, to } = lastDays(days);
+    try {
+      const [byAgent, byDayRows, managed] = await Promise.all([
+        platform.usage('agent', from, to),
+        platform.usage('day', from, to),
+        platform.managedAgents(),
+      ]);
+      const keys = new Map(
+        [...managed.values()].map((agent) => [agent.id, agent.externalKey ?? '']),
+      );
+      const people = new Map<string, { name: string; email: string }>();
+      for (const key of keys.values()) {
+        const id = /^u:([^:]+)/.exec(key)?.[1];
+        if (!id || people.has(id)) continue;
+        const person = await store.person(id);
+        if (person) people.set(id, { name: person.name, email: person.email });
+      }
+      const summary = usageByPerson(
+        byAgent,
+        (id) => keys.get(id),
+        (id) => people.get(id),
+      );
+      return c.json({
+        data: { from, to, days, ...summary, byDay: usageByDay(byDayRows, from, to) },
+      });
     } catch (error) {
       return platformFailure(c, error);
     }

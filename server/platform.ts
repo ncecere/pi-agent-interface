@@ -1,5 +1,6 @@
 import type { Config } from './config.ts';
 import type { User } from './session.ts';
+import type { PlatformUsageRow } from './usage.ts';
 
 /**
  * The platform, as this app's team service account. The key can reach every
@@ -171,6 +172,13 @@ export class Platform {
       };
     }
     return this.managed.byKey;
+  }
+
+  /** The team's usage report: per agent or per day, for a range of days (UTC). */
+  async usage(groupBy: 'agent' | 'day', from: string, to: string): Promise<PlatformUsageRow[]> {
+    const team = encodeURIComponent(this.config.platformTeam);
+    const query = new URLSearchParams({ groupBy, from, to });
+    return (await this.json<{ rows: PlatformUsageRow[] }>(`/v1/teams/${team}/usage?${query}`)).rows;
   }
 
   /** After a change: the next read asks the platform again. */

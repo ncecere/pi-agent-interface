@@ -18,9 +18,13 @@ export type ChatViewMessage = Schemas['ChatMessage'];
 
 export type Role = 'admin' | 'user';
 
+/** Optional features (server/features.ts) and whether each is on. */
+export type FeatureId = 'usage';
+
 export interface Me {
   user: { id: string; name: string; email: string; role: Role };
   csrfToken: string;
+  features?: Partial<Record<FeatureId, boolean>>;
 }
 
 export interface AuthConfig {

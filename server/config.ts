@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { FEATURE_IDS, isFeatureId } from './features.ts';
 
 /**
  * The chat server's settings, from the environment (and `.env.local` in
@@ -39,6 +40,8 @@ export interface Config {
   databaseUrl: string;
   /** Becomes an administrator on signing in while there is no administrator (the bootstrap). */
   initialAdminEmail: string | null;
+  /** Optional features this deployment turns off for good (features.ts); administrators cannot turn them on. */
+  disabledFeatures?: string[];
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -119,7 +122,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     staticDir: env.STATIC_DIR?.trim() || null,
     databaseUrl: required('DATABASE_URL'),
     initialAdminEmail: env.INITIAL_ADMIN_EMAIL?.trim() || null,
+    disabledFeatures: (env.DISABLED_FEATURES ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean),
   };
+  for (const name of config.disabledFeatures ?? [])
+    if (!isFeatureId(name))
+      problems.push(
+        `DISABLED_FEATURES: there is no feature "${name}" (known: ${FEATURE_IDS.join(', ')})`,
+      );
   if (problems.length) throw new Error(`Configuration:\n  - ${problems.join('\n  - ')}`);
   return config;
 }

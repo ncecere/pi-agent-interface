@@ -33,6 +33,8 @@ export function describeAudit(entry: AuditEntry, names: Map<string, string>): st
         : `${actor} ended ${target}'s sessions`;
     case 'settings.branding':
       return `${actor} changed the branding`;
+    case 'settings.features':
+      return `${actor} changed which features are on`;
     case 'settings.agents':
       return `${actor} changed the agent settings`;
     case 'settings.provided':

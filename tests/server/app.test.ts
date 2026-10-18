@@ -126,6 +126,39 @@ function fakePlatform() {
       agents[agent.id] = { ...agents[agent.id]!, ...(body.name ? { name: body.name } : {}) };
       return agents[agent.id]!;
     },
+    usageCalls: [] as string[],
+    async usage(groupBy: 'agent' | 'day', from: string, to: string) {
+      platform.usageCalls.push(`${groupBy} ${from}..${to}`);
+      if (groupBy === 'day')
+        return [
+          {
+            day: to,
+            requests: 3,
+            inputTokens: 30,
+            outputTokens: 60,
+            costUsd: 0,
+            unpricedRequests: 3,
+          },
+        ];
+      return [
+        {
+          agentId: TIM_AGENT,
+          requests: 2,
+          inputTokens: 20,
+          outputTokens: 40,
+          costUsd: 0,
+          unpricedRequests: 2,
+        },
+        {
+          agentId: BOB_AGENT,
+          requests: 1,
+          inputTokens: 10,
+          outputTokens: 20,
+          costUsd: 0,
+          unpricedRequests: 1,
+        },
+      ];
+    },
     async deleteAgent(id: string) {
       deleted.push(id);
       delete agents[id];
@@ -150,9 +183,11 @@ function fakePlatform() {
 
 let platform: ReturnType<typeof fakePlatform>;
 let app: ReturnType<typeof createApp>;
+let store: MemoryStore;
 beforeEach(() => {
   platform = fakePlatform();
-  app = createApp(config, { store: new MemoryStore(), platform: platform as unknown as Platform });
+  store = new MemoryStore();
+  app = createApp(config, { store, platform: platform as unknown as Platform });
 });
 
 /** Signs in as a development account; returns its cookie and CSRF token. */
@@ -225,6 +260,86 @@ describe('agent ownership', () => {
     expect(ownsAgent(tim, { externalKey: `u:${tim.id}:coder` })).toBe(true);
     expect(ownsAgent(tim, { externalKey: `u:${tim.id}x` })).toBe(false);
     expect(ownsAgent(tim, { externalKey: null })).toBe(false);
+  });
+});
+
+describe('optional features and usage', () => {
+  // Tim is the instance's first administrator.
+  const withAdmin = { ...config, initialAdminEmail: 'tim@example.test' };
+  beforeEach(() => {
+    app = createApp(withAdmin, { store, platform: platform as unknown as Platform });
+  });
+  const admin = () => signIn('tim');
+
+  it('tells everyone which features are on', async () => {
+    const { cookie } = await signIn('bob');
+    const me = await (await app.request('/api/me', { headers: { Cookie: cookie } })).json();
+    expect(me.data.features).toEqual({ usage: true });
+  });
+
+  it('shows administrators usage per person, and nobody else', async () => {
+    const bob = await signIn('bob');
+    expect(
+      (await app.request('/api/admin/usage', { headers: { Cookie: bob.cookie } })).status,
+    ).toBe(403);
+    const { cookie } = await admin();
+    const response = await app.request('/api/admin/usage?days=7', { headers: { Cookie: cookie } });
+    expect(response.status).toBe(200);
+    const body = (await response.json()).data;
+    expect(body.days).toBe(7);
+    expect(
+      body.people.map((p: { name: string; requests: number }) => [p.name, p.requests]),
+    ).toEqual([
+      ['Tim', 2],
+      ['Bob', 1],
+    ]);
+    expect(body.byDay).toHaveLength(7);
+  });
+
+  it('refuses usage once an administrator turns it off, and records who did', async () => {
+    const { cookie, csrf } = await admin();
+    const off = await app.request('/api/admin/settings/features', {
+      method: 'PUT',
+      headers: {
+        Cookie: cookie,
+        'X-CSRF-Token': csrf,
+        Origin: 'http://localhost:5177',
+        'Content-Type': 'application/json',
+      },
+      body: '{"usage":false}',
+    });
+    expect(off.status).toBe(200);
+    expect((await app.request('/api/admin/usage', { headers: { Cookie: cookie } })).status).toBe(
+      404,
+    );
+    const me = await (await app.request('/api/me', { headers: { Cookie: cookie } })).json();
+    expect(me.data.features.usage).toBe(false);
+    const audit = await (
+      await app.request('/api/admin/audit', { headers: { Cookie: cookie } })
+    ).json();
+    expect(
+      audit.data.some((entry: { action: string }) => entry.action === 'settings.features'),
+    ).toBe(true);
+  });
+
+  it('keeps a feature the deployment disables off, whatever administrators choose', async () => {
+    const locked = createApp(
+      { ...withAdmin, disabledFeatures: ['usage'] },
+      { store, platform: platform as unknown as Platform },
+    );
+    const response = await locked.request('/auth/dev', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5177' },
+      body: '{"account":"tim"}',
+    });
+    const cookie = response.headers.get('set-cookie')!.split(';')[0]!;
+    const list = await (
+      await locked.request('/api/admin/features', { headers: { Cookie: cookie } })
+    ).json();
+    expect(list.data[0]).toMatchObject({ id: 'usage', enabled: false, locked: true });
+    expect((await locked.request('/api/admin/usage', { headers: { Cookie: cookie } })).status).toBe(
+      404,
+    );
   });
 });
 
