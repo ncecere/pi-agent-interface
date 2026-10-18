@@ -105,7 +105,18 @@ export function noteNewThread(
   queryClient.setQueryData<AgentThread[]>(threadsKey(agentId), (threads) => {
     if (threads?.some((thread) => thread.threadId === threadId)) return threads;
     const title = firstMessage.replace(/\s+/g, ' ').trim().slice(0, 80) || 'New conversation';
-    return [{ threadId, title, createdAt: now, updatedAt: now, busy: true }, ...(threads ?? [])];
+    return [
+      {
+        threadId,
+        title,
+        createdAt: now,
+        updatedAt: now,
+        busy: true,
+        visibility: 'shared',
+        participants: [],
+      },
+      ...(threads ?? []),
+    ];
   });
 }
 

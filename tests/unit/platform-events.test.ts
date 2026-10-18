@@ -8,6 +8,8 @@ const thread = (threadId: string, title = threadId): AgentThread => ({
   createdAt: 1,
   updatedAt: 1,
   busy: false,
+  visibility: 'shared',
+  participants: [],
 });
 
 describe('applyThreadEvent', () => {

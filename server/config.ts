@@ -24,6 +24,13 @@ export interface Config {
    * Optional in the config file: `connect` unless a service key is set.
    */
   platformAuth?: 'connect' | 'service';
+  /**
+   * Connect mode: must the platform account a person connects have the same
+   * email as their account here? `require` (the default) refuses a mismatch,
+   * which would put their agents in someone else's workspace; `off` for
+   * deployments whose two sides use different identity providers.
+   */
+  connectEmailMatch?: 'require' | 'off';
   /** Service mode: the platform team whose service account this app uses, by slug. */
   platformTeam: string;
   /** Service mode: the team service account's key (role editor), `pdp_sa_…`. Never sent to browsers. */
@@ -118,6 +125,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : env.PLATFORM_SERVICE_KEY?.trim()
         ? 'service'
         : 'connect';
+  const matchSetting = env.CONNECT_EMAIL_MATCH?.trim();
+  if (matchSetting && matchSetting !== 'require' && matchSetting !== 'off')
+    problems.push('CONNECT_EMAIL_MATCH is require or off');
   const serviceOnly = (name: string) =>
     platformAuth === 'service' ? required(name) : (env[name]?.trim() ?? '');
   if (platformUrl.protocol !== 'https:' && !isLoopback(platformUrl))
@@ -132,6 +142,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: Number(env.PORT ?? 5178),
     platformUrl,
     platformAuth,
+    connectEmailMatch: matchSetting === 'off' ? 'off' : 'require',
     platformTeam: serviceOnly('PLATFORM_TEAM'),
     platformServiceKey: serviceOnly('PLATFORM_SERVICE_KEY'),
     agentTemplate: env.AGENT_TEMPLATE?.trim() ?? '',

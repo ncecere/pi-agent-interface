@@ -40,6 +40,7 @@ function fakePlatform() {
   const refresh = new Set<string>();
   let n = 0;
   let nextAgent = 0;
+  let email = 'tim@example.test';
   const agents = new Map<string, Record<string, unknown>>();
   const add = (team: typeof PERSONAL, name: string, extra: Record<string, unknown> = {}) => {
     const id = `00000000-0000-4000-8000-${String(++nextAgent).padStart(12, '0')}`;
@@ -98,13 +99,14 @@ function fakePlatform() {
     const bearer = new Headers(init.headers).get('Authorization')?.replace('Bearer ', '') ?? '';
     if (!access.has(bearer)) return new Response('{}', { status: 401 });
     calls.push(`${method} ${path}`);
-    if (path === '/v1/me')
-      return json({ user: { id: 'u-tim', email: 'tim@example.test', name: 'Tim' } });
+    if (path === '/v1/me') return json({ user: { id: 'u-tim', email, displayName: 'Tim' } });
     if (path === '/v1/teams') return json([PERSONAL, TEAM]);
     if (path === '/v1/agent-templates')
+      // The catalog: platform templates and published team templates. A team's own unpublished
+      // template (t-team) isn't in it.
       return json([
         { id: 't-assistant', slug: 'assistant', name: 'Assistant', teamId: null },
-        { id: 't-team', slug: 'internal', name: 'Internal', teamId: TEAM.id },
+        { id: 't-published', slug: 'published', name: 'Published', teamId: TEAM.id },
       ]);
     if (path === `/v1/teams/${PERSONAL.slug}/models`)
       return json([{ id: 'm-oss', name: 'gpt-oss-120b', enabled: true }]);
@@ -113,6 +115,14 @@ function fakePlatform() {
     if (path === '/v1/agents') return json([...agents.values()]);
     if (path === `/v1/teams/${PERSONAL.slug}/agents` && method === 'POST') {
       const body = JSON.parse(String(init.body));
+      const taken = [...agents.values()].some(
+        (a) => a.teamId === PERSONAL.id && String(a.name).toLowerCase() === body.name.toLowerCase(),
+      );
+      if (taken)
+        return Response.json(
+          { error: { code: 'name_taken', message: 'Names are unique.' } },
+          { status: 409 },
+        );
       const id = add(PERSONAL, body.name, {
         templateId: body.templateId,
         model: body.modelId ? { id: body.modelId } : null,
@@ -152,6 +162,10 @@ function fakePlatform() {
       const u = new URL(url);
       return { code, state: u.searchParams.get('state')!, iss: PLATFORM };
     },
+    setEmail(value: string) {
+      email = value;
+    },
+    refreshTokens: refresh,
     revokeAll() {
       access.clear();
       refresh.clear();
@@ -181,7 +195,7 @@ async function signIn() {
   return { cookie, csrf: me.data.csrfToken as string, me: me.data };
 }
 
-async function connectTim() {
+async function connectTim(expectOk = true) {
   const tim = await signIn();
   const start = await app.request('/connect/start?next=/after', {
     headers: { Cookie: tim.cookie },
@@ -194,8 +208,8 @@ async function connectTim() {
     headers: { Cookie: `${tim.cookie}; ${pending}` },
   });
   expect(done.status).toBe(302);
-  expect(done.headers.get('location')).toBe('/after');
-  return tim;
+  if (expectOk) expect(done.headers.get('location')).toBe('/after');
+  return { ...tim, done };
 }
 
 const get = (path: string, cookie: string) => app.request(path, { headers: { Cookie: cookie } });
@@ -312,6 +326,32 @@ describe('Connect mode', () => {
     const again = await connectTim();
     expect((await write('POST', '/api/me/platform/disconnect', again)).status).toBe(200);
     expect((await get('/api/agents', again.cookie)).status).toBe(409);
+  });
+
+  it('refuses a platform account that is not the person’s own, and revokes what it got', async () => {
+    platform.setEmail('someone.else@example.test');
+    const { done } = await connectTim(false);
+    expect(decodeURIComponent(done.headers.get('location')!)).toContain(
+      "You connected someone.else@example.test on the agent platform, but you're signed in here as tim@example.test",
+    );
+    expect(platform.refreshTokens.size).toBe(0); // revoked
+    const tim = await signIn();
+    expect((await get('/api/agents', tim.cookie)).status).toBe(409); // not connected
+  });
+
+  it('adopts the agent that is already there when its name is taken, instead of failing or duplicating', async () => {
+    const tim = await connectTim();
+    await get('/api/agents', tim.cookie);
+    const [person] = await store.people();
+    await store.removeProvidedCopy(person!.id, 'assistant'); // the app's record is lost; the agent is not
+    const list = (await (await get('/api/agents', tim.cookie)).json()).data as Array<{
+      name: string;
+      kind: string;
+    }>;
+    expect(list.filter((agent) => agent.kind === 'provided')).toHaveLength(1);
+    expect(
+      [...platform.agents.values()].filter((agent) => agent.name === 'Assistant'),
+    ).toHaveLength(1);
   });
 
   it('locks Admin → Usage off, with the reason', async () => {

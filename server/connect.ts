@@ -69,7 +69,7 @@ interface PendingConnect {
 
 const ENDPOINTS_TTL_MS = 10 * 60_000;
 /** Refresh a little before the access token runs out. */
-const REFRESH_EARLY_MS = 60_000;
+const REFRESH_EARLY_MS = 2 * 60_000;
 const PENDING_TTL_S = 10 * 60;
 const SCOPE = 'agents';
 const CLIENT_SETTING = 'connect.client';
@@ -204,11 +204,7 @@ export class Connect {
    * Where to send the person to connect, and the sealed state to keep in a
    * cookie until they come back.
    */
-  async start(
-    personId: string,
-    returnTo: string,
-    loginHint?: string,
-  ): Promise<{ url: string; pending: string }> {
+  async start(personId: string, returnTo: string): Promise<{ url: string; pending: string }> {
     const [endpoints, clientId] = await Promise.all([this.endpoints(), this.clientId()]);
     const verifier = b64url(Buffer.from(token(32)));
     const state = token(16);
@@ -221,7 +217,6 @@ export class Connect {
       code_challenge: challengeOf(verifier),
       code_challenge_method: 'S256',
       scope: SCOPE,
-      ...(loginHint ? { login_hint: loginHint } : {}),
     }).toString();
     const pending: PendingConnect = {
       state,
@@ -239,6 +234,12 @@ export class Connect {
     personId: string,
     query: Record<string, string | undefined>,
     sealed: string | undefined,
+    /**
+     * The person's email here, and whether the platform account must be the
+     * same one. Two accounts of different people would put the person's
+     * agents and conversations in someone else's workspace.
+     */
+    expected: { email: string; match: 'require' | 'off' } = { email: '', match: 'off' },
   ): Promise<string> {
     const pending = this.pending.open<PendingConnect>(sealed);
     if (
@@ -272,6 +273,18 @@ export class Connect {
       throw new ConnectError(reply.error, reply.description);
     }
     const me = await this.whoIs(reply.access_token);
+    if (
+      expected.match === 'require' &&
+      expected.email &&
+      me?.email &&
+      me.email.toLowerCase() !== expected.email.toLowerCase()
+    ) {
+      await this.revokeRefresh(reply.refresh_token, pending.clientId);
+      throw new ConnectError(
+        'account_mismatch',
+        `You connected ${me.email} on the agent platform, but you're signed in here as ${expected.email}. Sign out of ${this.config.platformUrl.host}, then connect again with the same account.`,
+      );
+    }
     await this.save(personId, reply, me);
     return pending.returnTo;
   }
@@ -282,17 +295,11 @@ export class Connect {
       redirect: 'manual',
     });
     if (!response.ok) return null;
-    const body = (await response.json()) as {
-      data?: {
-        id?: string;
-        email?: string;
-        name?: string;
-        user?: { id?: string; email?: string; name?: string };
-      };
-    };
+    type Who = { id?: string; email?: string; displayName?: string };
+    const body = (await response.json()) as { data?: Who & { user?: Who } };
     const user = body.data?.user ?? body.data;
     return user
-      ? { id: user.id ?? null, email: user.email ?? null, name: user.name ?? null }
+      ? { id: user.id ?? null, email: user.email ?? null, name: user.displayName ?? null }
       : null;
   }
 
@@ -419,22 +426,27 @@ export class Connect {
     const row = await this.store.connection(personId);
     if (!row) return;
     const refresh = this.tokens.open<string>(row.refreshToken);
+    if (refresh) await this.revokeRefresh(refresh);
+    await this.store.removeConnection(personId);
+  }
+
+  /** Revokes a refresh token on the platform (best effort: the person is disconnected here either way). */
+  private async revokeRefresh(refresh: string, clientId?: string) {
     try {
       const endpoints = await this.endpoints();
-      if (refresh && endpoints.revocationEndpoint)
-        await this.fetchImpl(endpoints.revocationEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            token: refresh,
-            token_type_hint: 'refresh_token',
-            client_id: await this.clientId(),
-          }).toString(),
-          redirect: 'manual',
-        });
+      if (!endpoints.revocationEndpoint) return;
+      await this.fetchImpl(endpoints.revocationEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          token: refresh,
+          token_type_hint: 'refresh_token',
+          client_id: clientId ?? (await this.clientId()),
+        }).toString(),
+        redirect: 'manual',
+      });
     } catch (error) {
       console.warn('[connect] the refresh token could not be revoked', error);
     }
-    await this.store.removeConnection(personId);
   }
 }

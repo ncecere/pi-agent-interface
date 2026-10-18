@@ -474,11 +474,7 @@ export function createApp(
     app.get('/connect/start', requireSession, async (c) => {
       const person = c.get('person');
       try {
-        const { url, pending } = await connect.start(
-          person.id,
-          safeNext(c.req.query('next')),
-          person.email || undefined,
-        );
+        const { url, pending } = await connect.start(person.id, safeNext(c.req.query('next')));
         setCookie(c, connectCookie, pending, {
           httpOnly: true,
           secure,
@@ -501,7 +497,11 @@ export function createApp(
       const pending = getCookie(c, connectCookie);
       deleteCookie(c, connectCookie, { path: '/', secure });
       try {
-        const next = await connect.finish(c.get('person').id, c.req.query(), pending);
+        const person = c.get('person');
+        const next = await connect.finish(person.id, c.req.query(), pending, {
+          email: person.email,
+          match: config.connectEmailMatch ?? 'require',
+        });
         return c.redirect(safeNext(next));
       } catch (error) {
         if (!(error instanceof ConnectError)) console.error('[connect] could not finish', error);

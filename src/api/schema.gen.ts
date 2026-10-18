@@ -416,6 +416,52 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/v1/admin/agents/{agentId}/threads': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+      };
+      cookie?: never;
+    };
+    /**
+     * Every thread of an agent, private ones too (platform admins)
+     * @description Does not wake the agent. Titles of private threads, and of every thread of a personal workspace's agent, are withheld; reading such a conversation takes a reason (adminReadAgentThread).
+     */
+    get: operations['adminListAgentThreads'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/agents/{agentId}/threads/{threadId}/read': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        threadId: components['parameters']['ThreadIdParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Read any conversation, with a reason (platform admins)
+     * @description The conversation now (one snapshot; wakes the agent like any read). Each read is recorded as thread.admin_read in the agent's team's audit log, with the reason, before the conversation is returned. The way platform admins read private threads and conversations of personal workspaces' agents.
+     */
+    post: operations['adminReadAgentThread'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/v1/admin/audit': {
     parameters: {
       query?: never;
@@ -792,11 +838,14 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Every model provider, without its key (platform admins and auditors) */
+    /**
+     * Every model provider, without its key (platform admins and auditors)
+     * @description Platform providers and teams' own (team names the owner; null for a platform provider), or one owner's.
+     */
     get: operations['adminListModelProviders'];
     put?: never;
     /**
-     * Add a model provider (platform admins)
+     * Add a platform model provider (platform admins)
      * @description The API key (and any extra headers) are stored encrypted and never returned. In proxy mode agents call the platform, which adds the key; in direct mode agents get the provider's URL and key.
      */
     post: operations['adminCreateModelProvider'];
@@ -823,7 +872,10 @@ export interface paths {
     delete: operations['adminDeleteModelProvider'];
     options?: never;
     head?: never;
-    /** Change a provider, replace its key, or turn it off (platform admins) */
+    /**
+     * Change a provider, replace its key, or turn it off (platform admins)
+     * @description Any provider, a team's own too; a team's provider stays proxy-only and a new URL goes through the address guard (422 address_not_allowed).
+     */
     patch: operations['adminUpdateModelProvider'];
     trace?: never;
   };
@@ -838,7 +890,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Ask the provider which models it offers (platform admins) */
+    /**
+     * Ask the provider which models it offers (platform admins)
+     * @description A team's provider is reached through the address guard (422 address_not_allowed).
+     */
     post: operations['adminDiscoverModels'];
     delete?: never;
     options?: never;
@@ -873,7 +928,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Every model of every provider (platform admins and auditors) */
+    /**
+     * Every model of every provider (platform admins and auditors)
+     * @description With each model's provider's owner (providerTeam; null for a platform provider), or one owner's.
+     */
     get: operations['adminListModels'];
     put?: never;
     post?: never;
@@ -916,7 +974,10 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** The models the team may use (its members and service accounts, platform staff) */
+    /**
+     * The models the team may use (its members and service accounts, platform staff)
+     * @description The team's own providers' models (providerTeam set) and the platform's published to it. A team's own models are never available to another team.
+     */
     get: operations['listTeamModels'];
     put?: never;
     post?: never;
@@ -924,6 +985,147 @@ export interface paths {
     options?: never;
     head?: never;
     patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/model-provider-kinds': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    /** The types of model provider a team may add (its members, platform staff) */
+    get: operations['listTeamModelProviderKinds'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/model-providers': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    /** The team's own model providers, without their keys (its members in a browser session, platform staff) */
+    get: operations['listTeamModelProviders'];
+    put?: never;
+    /**
+     * Add a model provider for the team (its owners and admins, in a browser session)
+     * @description Proxy mode only. The base URL must be https and on an address teams may use: public, or private inside the networks platform admins allow (422 address_not_allowed); it is checked again at every connection. Refused with 409 team_providers_off while platform admins have turned team providers off, and 409 personal_workspace in a personal workspace unless they let personal workspaces add providers. The key is stored encrypted and never returned.
+     */
+    post: operations['createTeamModelProvider'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/model-providers/{providerId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    /** One of the team's own providers (its members in a browser session, platform staff) */
+    get: operations['getTeamModelProvider'];
+    put?: never;
+    post?: never;
+    /** Remove one of the team's providers and its models (its owners and admins); refused while templates or agents use them */
+    delete: operations['deleteTeamModelProvider'];
+    options?: never;
+    head?: never;
+    /**
+     * Change one of the team's providers, replace its key, or turn it off (its owners and admins)
+     * @description Allowed even while adding team providers is turned off. Proxy mode only; a new URL is checked as on create.
+     */
+    patch: operations['updateTeamModelProvider'];
+    trace?: never;
+  };
+  '/v1/teams/{team}/model-providers/{providerId}/discover': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ask one of the team's providers which models it offers (its owners and admins)
+     * @description Through the address guard, like every request to a team's provider.
+     */
+    post: operations['discoverTeamModels'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/model-providers/{providerId}/models': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    /** One of the team's providers' models (its members in a browser session, platform staff) */
+    get: operations['listTeamProviderModels'];
+    put?: never;
+    /**
+     * Add a model to one of the team's providers (its owners and admins); it is for the team only
+     * @description visibility, teams and personal don't apply to a team's own models: leave them out (400 team_model_visibility for visibility all, teams, or personal true).
+     */
+    post: operations['createTeamModel'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/models/{modelId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        modelId: components['parameters']['ModelIdParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Remove a model of one of the team's providers (its owners and admins); refused while templates or agents use it */
+    delete: operations['deleteTeamModel'];
+    options?: never;
+    head?: never;
+    /** Change a model of one of the team's providers, or turn it off (its owners and admins) */
+    patch: operations['updateTeamModel'];
     trace?: never;
   };
   '/v1/teams/{team}/usage': {
@@ -973,11 +1175,14 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Every MCP server, without header values (platform admins and auditors) */
+    /**
+     * Every MCP server, without header values (platform admins and auditors)
+     * @description Platform servers and teams' own (team names the owner; null for a platform server), or one owner's.
+     */
     get: operations['adminListMcpServers'];
     put?: never;
     /**
-     * Add a remote MCP server and read its tools (platform admins)
+     * Add a platform MCP server and read its tools (platform admins)
      * @description Headers (for example Authorization) are stored encrypted and never returned. A server that cannot be reached is still added; toolsError says why.
      */
     post: operations['adminCreateMcpServer'];
@@ -1004,7 +1209,10 @@ export interface paths {
     delete: operations['adminDeleteMcpServer'];
     options?: never;
     head?: never;
-    /** Change an MCP server, who it is published to, or turn it off (platform admins) */
+    /**
+     * Change any MCP server, who it is published to, or turn it off (platform admins)
+     * @description A team's own server stays proxy-only and its team's only (400 team_mcp_visibility for visibility all, teams, or personal true), and a new URL is checked by the address guard (422 address_not_allowed).
+     */
     patch: operations['adminUpdateMcpServer'];
     trace?: never;
   };
@@ -1019,7 +1227,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Read the server's tools again (platform admins) */
+    /**
+     * Read the server's tools again (platform admins)
+     * @description A team's own server is reached through the address guard (422 address_not_allowed).
+     */
     post: operations['adminRefreshMcpServer'];
     delete?: never;
     options?: never;
@@ -1037,10 +1248,84 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** The MCP servers the team may give its templates (its members and service accounts, platform staff) */
+    /**
+     * The MCP servers the team may give its templates (its members and service accounts, platform staff)
+     * @description The team's own servers (team names it) first, then the platform's published to it.
+     */
     get: operations['listTeamMcpServers'];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/mcp-servers/own': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    /** The team's own MCP servers, without header values (its members in a browser session, platform staff) */
+    get: operations['listTeamOwnMcpServers'];
+    put?: never;
+    /**
+     * Add an MCP server for the team and read its tools (its owners and admins, in a browser session)
+     * @description For the team only (400 team_mcp_visibility for visibility all, teams, or personal true). Proxy mode only. The URL must be https and on an address teams may use: public, or private inside the networks platform admins allow (422 address_not_allowed, address_unresolved); it is checked again at every connection. The slug must not be taken by any server, the platform's or another team's (it names the server's tools). Refused with 409 team_mcp_servers_off while platform admins have turned team MCP servers off, and 409 personal_workspace in a personal workspace unless they let personal workspaces add MCP servers. Headers are stored encrypted and never returned. A server whose tools can't be read is still added; toolsError says why.
+     */
+    post: operations['createTeamMcpServer'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/teams/{team}/mcp-servers/own/{serverId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    /** One of the team's own MCP servers and its tools (its members in a browser session, platform staff) */
+    get: operations['getTeamOwnMcpServer'];
+    put?: never;
+    post?: never;
+    /** Remove one of the team's MCP servers (its owners and admins); refused while template versions use it */
+    delete: operations['deleteTeamOwnMcpServer'];
+    options?: never;
+    head?: never;
+    /**
+     * Change one of the team's MCP servers, replace its headers, or turn it off (its owners and admins)
+     * @description Allowed even while adding team MCP servers is turned off. Proxy mode only; a new URL is checked as on create.
+     */
+    patch: operations['updateTeamOwnMcpServer'];
+    trace?: never;
+  };
+  '/v1/teams/{team}/mcp-servers/own/{serverId}/refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Read one of the team's MCP servers' tools again, through the address guard (its owners and admins) */
+    post: operations['refreshTeamOwnMcpServer'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1081,7 +1366,7 @@ export interface paths {
     };
     /**
      * Server-sent events for the threads of every agent the caller may use
-     * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread. `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts).
+     * @description `event: ready` first, then `event: thread` (an AgentThreadEvent) whenever a thread is created, renamed, starts or finishes a reply, or is deleted. One stream follows every conversation, so a client need not open one per thread (shared threads and the caller's own private ones). `agentId` limits it to one agent; `once=true` sends `ready` and ends. A keep-alive comment comes every 15 seconds; reconnect when the stream ends (it does when the platform restarts).
      */
     get: operations['streamAgentEvents'];
     put?: never;
@@ -1106,6 +1391,27 @@ export interface paths {
      * @description Turning personal workspaces off stops creating them at sign-in; existing ones stay (archive one to make it read-only). The monthly budget is recorded but not enforced yet.
      */
     put: operations['adminUpdatePersonalSettings'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/admin/settings/models': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Model settings (platform admins and auditors) */
+    get: operations['adminGetModelSettings'];
+    /**
+     * Change the model settings (platform admins)
+     * @description Turning team providers (or team MCP servers) off stops teams adding new ones; existing ones keep working and can still be changed or deleted. privateNetworks are the private CIDRs teams' own services, model providers and MCP servers alike, may be on (public addresses are always allowed; loopback, link-local and cloud metadata addresses never).
+     */
+    put: operations['adminUpdateModelSettings'];
     post?: never;
     delete?: never;
     options?: never;
@@ -1279,7 +1585,7 @@ export interface paths {
     };
     /**
      * The agent's conversations, most recently used first, with their status (does not wake the agent)
-     * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start.
+     * @description From the platform's record of each thread, kept as messages are relayed and as the agent reports replies ending. A thread whose agent has not run since this record began appears after the agent's next start. Shared threads and the caller's own private ones; others' private threads are never listed.
      */
     get: operations['listAgentThreads'];
     put?: never;
@@ -1509,6 +1815,10 @@ export interface components {
     PersonalWorkspaceSettings: {
       /** @description People get a personal workspace when they sign in */
       enabled: boolean;
+      /** @description Personal workspaces may add their own model providers (while teams may) */
+      ownProviders?: boolean;
+      /** @description Personal workspaces may add their own MCP servers (while teams may) */
+      ownMcpServers?: boolean;
       /** Format: int32 */
       maxAgents: number;
       /**
@@ -1528,6 +1838,10 @@ export interface components {
     };
     PersonalWorkspaceSettingsUpdate: {
       enabled: boolean;
+      /** @description Omitted keeps the current setting */
+      ownProviders?: boolean;
+      /** @description Omitted keeps the current setting */
+      ownMcpServers?: boolean;
       /** Format: int32 */
       maxAgents: number;
       /** Format: int32 */
@@ -1550,6 +1864,10 @@ export interface components {
       agentCount: number;
       /** Format: int64 */
       runningCount: number;
+      /** @description Whether the caller may add a model provider for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them) */
+      canAddProviders?: boolean;
+      /** @description Whether the caller may add an MCP server for this workspace now (an owner or admin in a browser session, while platform admins let teams, and personal workspaces, add them) */
+      canAddMcpServers?: boolean;
     };
     WorkspaceLimitsUpdate: {
       /** Format: int32 */
@@ -1568,7 +1886,7 @@ export interface components {
       /** Format: uuid */
       id: string;
       name: string;
-      /** @description Names its tools for the model (mcp__<slug>__<tool>) */
+      /** @description Names its tools for the model (mcp__<slug>__<tool>); unique across the platform and every team */
       slug: string;
       description: string;
       url: string;
@@ -1589,6 +1907,8 @@ export interface components {
       toolsRefreshedAt?: string | null;
       /** @description Why the tools could not be read the last time */
       toolsError?: string | null;
+      /** @description The team that owns the server (null for a platform server); a team's server is for that team only */
+      team?: components['schemas']['ModelOwner'] | null;
       /** Format: int64 */
       revision: number;
       /** Format: date-time */
@@ -1758,10 +2078,39 @@ export interface components {
       modelCount: number;
       /** Format: int64 */
       revision: number;
+      /** @description The team that owns the provider (null for a platform provider) */
+      team?: components['schemas']['ModelOwner'] | null;
       /** Format: date-time */
       createdAt: string;
       /** Format: date-time */
       updatedAt: string;
+    };
+    ModelOwner: {
+      /** Format: uuid */
+      id: string;
+      slug: string;
+      name: string;
+      /** @enum {string} */
+      kind: 'team' | 'personal';
+    };
+    ModelSettings: {
+      /** @description Team owners and admins may add model providers for their teams */
+      teamsMayAddProviders: boolean;
+      /** @description Team owners and admins may add MCP servers for their teams (always present) */
+      teamsMayAddMcpServers?: boolean;
+      /** @description Private CIDRs teams' own model providers and MCP servers may be on (public addresses are always allowed) */
+      privateNetworks: string[];
+      /** Format: int64 */
+      revision: number;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    ModelSettingsUpdate: {
+      teamsMayAddProviders: boolean;
+      /** @description Omitted keeps the current setting */
+      teamsMayAddMcpServers?: boolean;
+      /** @description Private CIDRs such as 10.20.0.0/16 (not loopback, link-local or public ranges) */
+      privateNetworks: string[];
     };
     ModelProviderCreate: {
       name: string;
@@ -1776,7 +2125,7 @@ export interface components {
       baseUrl?: string;
       apiKey: string;
       /**
-       * @description Default proxy
+       * @description Default proxy (a team's providers are proxy only)
        * @enum {string}
        */
       accessMode?: 'proxy' | 'direct';
@@ -1853,6 +2202,8 @@ export interface components {
       /** @description Available in personal workspaces (when created, defaults to visibility = all) */
       personal: boolean;
       teams?: components['schemas']['ModelTeam'][] | null;
+      /** @description The team that owns the model's provider (null for a platform provider); its models are that team's only */
+      providerTeam?: components['schemas']['ModelOwner'] | null;
       /** Format: int64 */
       revision: number;
       /** Format: date-time */
@@ -2123,6 +2474,57 @@ export interface components {
       lastReplyAt?: number | null;
       /** @description Why the last reply failed (absent when it succeeded) */
       lastError?: string | null;
+      visibility: components['schemas']['ThreadVisibility'];
+      /** @description Who started the thread (absent when unknown, such as threads begun before the platform recorded it) */
+      createdBy?: components['schemas']['ThreadPrincipal'] | null;
+      /** @description Everyone who has sent to the thread, first sender first */
+      participants: components['schemas']['ThreadParticipant'][];
+    };
+    /**
+     * @description shared: everyone who may use the agent sees the thread. private: only the person or service account that started it (not other members, not the team's owners or admins). Chosen with the first message; it never changes.
+     * @enum {string}
+     */
+    ThreadVisibility: 'shared' | 'private';
+    ThreadPrincipal: {
+      /** @enum {string} */
+      kind: 'user' | 'service_account';
+      /** Format: uuid */
+      id: string;
+      /** @description A person's display name (else email), or a service account's name */
+      name: string;
+    };
+    ThreadParticipant: {
+      /** @enum {string} */
+      kind: 'user' | 'service_account';
+      /** Format: uuid */
+      id: string;
+      name: string;
+      /**
+       * Format: int64
+       * @description When they last sent to the thread (Unix milliseconds)
+       */
+      lastSentAt: number;
+    };
+    /** @description A thread as platform admins list it. The title of a private thread, and of every thread of a personal workspace's agent, is withheld (null, titleHidden): reading one takes a reason (adminReadAgentThread). */
+    AdminAgentThread: {
+      threadId: string;
+      title: string | null;
+      titleHidden: boolean;
+      /** Format: int64 */
+      createdAt: number;
+      /** Format: int64 */
+      updatedAt: number;
+      busy: boolean;
+      /** Format: int64 */
+      lastReplyAt?: number | null;
+      lastError?: string | null;
+      visibility: components['schemas']['ThreadVisibility'];
+      createdBy?: components['schemas']['ThreadPrincipal'] | null;
+      participants: components['schemas']['ThreadParticipant'][];
+    };
+    AdminThreadRead: {
+      /** @description Why the conversation is opened; recorded in the agent's team's audit log */
+      reason: string;
     };
     AgentThreadUpdate: {
       title: string;
@@ -2135,12 +2537,15 @@ export interface components {
       /** @description The thread now (absent when deleted) */
       thread?: components['schemas']['AgentThread'] | null;
     };
+    /** @description The platform records the thread (its creator and visibility) before relaying the first message. Another's private thread reads as not found (404 thread_not_found), on this and every thread route. */
     AgentMessageCreate: {
       text: string;
       /** @description Idempotency key; a repeated one is not submitted again */
       requestId?: string;
       /** @description The MCP servers this thread's user enabled in the app (replaces the thread's; [] removes them). For template versions with clientMcp, on hosts the platform allows. Never forwarded to the agent: the platform keeps them. */
       mcpServers?: components['schemas']['ClientMcpServer'][];
+      /** @description The thread's visibility, chosen with its first message (default shared). On a later message it may be omitted; a different value is refused (409 visibility_fixed). The message's author is always the caller: author fields a client sends are ignored. */
+      visibility?: components['schemas']['ThreadVisibility'];
     };
     AgentMessageAccepted: {
       /** Format: int64 */
@@ -2152,6 +2557,42 @@ export interface components {
       arguments: {
         [key: string]: unknown;
       };
+      /**
+       * Format: int64
+       * @description When the call was made (the assistant message's time, Unix milliseconds)
+       */
+      startedAt?: number;
+      /**
+       * Format: int64
+       * @description When its result arrived (Unix milliseconds; absent while it runs)
+       */
+      endedAt?: number;
+    };
+    /** @description Who sent a user message, as the platform recorded it */
+    ChatAuthor: {
+      /** @enum {string} */
+      kind: 'user' | 'service_account';
+      id: string;
+      name: string;
+      /** @description The app a person sent it through (OAuth Connect) */
+      via?: string;
+    };
+    ChatModel: {
+      provider: string;
+      id: string;
+    };
+    /** @description Tokens of one model response */
+    ChatUsage: {
+      /** Format: int64 */
+      input: number;
+      /** Format: int64 */
+      output: number;
+      /** Format: int64 */
+      cacheRead: number;
+      /** Format: int64 */
+      cacheWrite: number;
+      /** Format: int64 */
+      total: number;
     };
     ChatMessage: {
       id: string;
@@ -2166,6 +2607,16 @@ export interface components {
       /** @description Tool name (tool results) */
       name?: string;
       isError?: boolean;
+      author?: components['schemas']['ChatAuthor'];
+      /**
+       * Format: int64
+       * @description When the message was sent or the reply started (Unix milliseconds)
+       */
+      at?: number;
+      model?: components['schemas']['ChatModel'];
+      usage?: components['schemas']['ChatUsage'];
+      /** @description Why an assistant reply ended (stop, length, toolUse, error, aborted) */
+      stopReason?: string;
     };
     ChatToolSlot: {
       callId: string;
@@ -3445,6 +3896,67 @@ export interface operations {
       409: components['responses']['ErrorReply'];
     };
   };
+  adminListAgentThreads: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Threads */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['AdminAgentThread'][];
+          };
+        };
+      };
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  adminReadAgentThread: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agentId: components['parameters']['AgentIdParam'];
+        /** @description Client-chosen thread ID (1-64 letters, digits, dashes or underscores) */
+        threadId: components['parameters']['ThreadIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AdminThreadRead'];
+      };
+    };
+    responses: {
+      /** @description The conversation */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ChatView'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      503: components['responses']['ErrorReply'];
+    };
+  };
   adminListAudit: {
     parameters: {
       query?: {
@@ -4220,7 +4732,10 @@ export interface operations {
   };
   adminListModelProviders: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description all (default), platform, or a team's slug or ID: whose providers */
+        owner?: string;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -4238,8 +4753,10 @@ export interface operations {
           };
         };
       };
+      400: components['responses']['ErrorReply'];
       401: components['responses']['ErrorReply'];
       403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
     };
   };
   adminCreateModelProvider: {
@@ -4365,6 +4882,7 @@ export interface operations {
       404: components['responses']['ErrorReply'];
       409: components['responses']['ErrorReply'];
       412: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
       428: components['responses']['ErrorReply'];
     };
   };
@@ -4394,6 +4912,7 @@ export interface operations {
       403: components['responses']['ErrorReply'];
       404: components['responses']['ErrorReply'];
       409: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
     };
   };
   adminListProviderModels: {
@@ -4459,7 +4978,10 @@ export interface operations {
   };
   adminListModels: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description all (default), platform, or a team's slug or ID: whose providers' models */
+        owner?: string;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -4477,8 +4999,10 @@ export interface operations {
           };
         };
       };
+      400: components['responses']['ErrorReply'];
       401: components['responses']['ErrorReply'];
       403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
     };
   };
   adminDeleteModel: {
@@ -4575,6 +5099,367 @@ export interface operations {
       404: components['responses']['ErrorReply'];
     };
   };
+  listTeamModelProviderKinds: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Provider types */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ProviderType'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  listTeamModelProviders: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Providers */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ModelProvider'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  createTeamModelProvider: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ModelProviderCreate'];
+      };
+    };
+    responses: {
+      /** @description Created provider */
+      201: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ModelProvider'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
+    };
+  };
+  getTeamModelProvider: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Provider */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ModelProvider'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  deleteTeamModelProvider: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['Ok'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  updateTeamModelProvider: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ModelProviderUpdate'];
+      };
+    };
+    responses: {
+      /** @description Updated provider */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ModelProvider'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
+    };
+  };
+  discoverTeamModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Models the provider offers */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['DiscoveredModel'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
+    };
+  };
+  listTeamProviderModels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Models */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['Model'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  createTeamModel: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        providerId: components['parameters']['ProviderIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ModelCreate'];
+      };
+    };
+    responses: {
+      /** @description Created model */
+      201: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['Model'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  deleteTeamModel: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        modelId: components['parameters']['ModelIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['Ok'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  updateTeamModel: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        modelId: components['parameters']['ModelIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ModelUpdate'];
+      };
+    };
+    responses: {
+      /** @description Updated model */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['Model'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
+    };
+  };
   getTeamUsage: {
     parameters: {
       query?: {
@@ -4646,7 +5531,10 @@ export interface operations {
   };
   adminListMcpServers: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description all (default), platform, or a team's slug or ID: whose servers */
+        owner?: string;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -4664,8 +5552,10 @@ export interface operations {
           };
         };
       };
+      400: components['responses']['ErrorReply'];
       401: components['responses']['ErrorReply'];
       403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
     };
   };
   adminCreateMcpServer: {
@@ -4791,6 +5681,7 @@ export interface operations {
       404: components['responses']['ErrorReply'];
       409: components['responses']['ErrorReply'];
       412: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
       428: components['responses']['ErrorReply'];
     };
   };
@@ -4820,6 +5711,7 @@ export interface operations {
       401: components['responses']['ErrorReply'];
       403: components['responses']['ErrorReply'];
       404: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
     };
   };
   listTeamMcpServers: {
@@ -4834,7 +5726,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description MCP servers published to the team */
+      /** @description The team's own MCP servers and those published to it */
       200: {
         headers: {
           [name: string]: unknown;
@@ -4848,6 +5740,204 @@ export interface operations {
       401: components['responses']['ErrorReply'];
       403: components['responses']['ErrorReply'];
       404: components['responses']['ErrorReply'];
+    };
+  };
+  listTeamOwnMcpServers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description MCP servers */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'][];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  createTeamMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['McpServerCreate'];
+      };
+    };
+    responses: {
+      /** @description Created server */
+      201: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
+    };
+  };
+  getTeamOwnMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Server */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+    };
+  };
+  deleteTeamOwnMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Deleted */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['Ok'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+    };
+  };
+  updateTeamOwnMcpServer: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['McpServerUpdate'];
+      };
+    };
+    responses: {
+      /** @description Updated server */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
+    };
+  };
+  refreshTeamOwnMcpServer: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Team slug or ID */
+        team: components['parameters']['TeamParam'];
+        serverId: components['parameters']['McpServerIdParam'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Server */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['McpServer'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      404: components['responses']['ErrorReply'];
+      409: components['responses']['ErrorReply'];
+      422: components['responses']['ErrorReply'];
     };
   };
   getThreadMcpServers: {
@@ -4992,6 +6082,66 @@ export interface operations {
         content: {
           'application/json': {
             data: components['schemas']['PersonalWorkspaceSettings'];
+          };
+        };
+      };
+      400: components['responses']['ErrorReply'];
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+      412: components['responses']['ErrorReply'];
+      428: components['responses']['ErrorReply'];
+    };
+  };
+  adminGetModelSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Settings */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ModelSettings'];
+          };
+        };
+      };
+      401: components['responses']['ErrorReply'];
+      403: components['responses']['ErrorReply'];
+    };
+  };
+  adminUpdateModelSettings: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description The resource's revision, as returned in ETag (for example "3"). Missing returns 428; stale returns 412. */
+        'If-Match': components['parameters']['IfMatchHeader'];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ModelSettingsUpdate'];
+      };
+    };
+    responses: {
+      /** @description Settings */
+      200: {
+        headers: {
+          ETag: components['headers']['ETag'];
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            data: components['schemas']['ModelSettings'];
           };
         };
       };

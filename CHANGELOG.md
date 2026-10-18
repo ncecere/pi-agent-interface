@@ -9,6 +9,10 @@
   their workspace; the picker groups Provided, Yours and each team; Settings → Account shows the connection with
   Disconnect. The app publishes a Client ID Metadata Document at `/oauth/client-metadata.json` (on a loopback
   `http` APP_URL it registers itself instead). Service mode is unchanged. Admin → Usage needs service mode.
+  A platform account whose email differs from the person's is refused (and its tokens revoked), unless
+  `CONNECT_EMAIL_MATCH=off`. A conversation with a team's agent is private to the person (the platform fixes
+  visibility with the first message). A provided agent already in the workspace under its name is adopted, not
+  duplicated.
 - **Personal usage** (an optional feature, off by default): Settings → Usage shows each person their own agents'
   requests, tokens and estimated cost, per agent and per day, named as they know them.
 - **Optional features** (Admin → Features): parts of the app an instance can do without, declared in

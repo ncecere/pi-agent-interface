@@ -105,7 +105,8 @@ export class EventsHub {
         if (!abort.signal.aborted) console.warn('[events] the platform event stream failed', error);
       }
       if (!this.running || this.listeners.size === 0) break;
-      await new Promise((resolve) => setTimeout(resolve, wait));
+      // Jitter: platform deploys end every stream at once, and they should not all come back together.
+      await new Promise((resolve) => setTimeout(resolve, wait * (0.8 + Math.random() * 0.4)));
       wait = Math.min(wait * 2, this.maxRetryMs);
     }
     this.running = false;

@@ -53,6 +53,7 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `APP_URL` | Where people open the app, e.g. `https://chat.example.com`. Its origin is the only one allowed to write. |
 | `PLATFORM_URL` | The platform's address. https outside localhost. |
 | `PLATFORM_AUTH` | `connect` or `service` (above). Default: `service` if `PLATFORM_SERVICE_KEY` is set, else `connect`. |
+| `CONNECT_EMAIL_MATCH` | Connect mode: `require` (the default) refuses a platform account whose email differs from the person's account here, since it would put their agents in someone else's workspace; `off` where the two sides use different identity providers. |
 | `PLATFORM_TEAM`, `PLATFORM_SERVICE_KEY` | Service mode only: the team and its service account's key. Never sent to browsers. |
 | `AGENT_TEMPLATE`, `AGENT_NAME` | The platform template each person's assistant is made from, and what the app calls it. |
 | `AGENT_MODEL` | The default model, by name or id, until an administrator picks one in Admin → Agents (which wins). Only a model currently published to the team is ever set, since an agent on an unpublished model would not start. Empty: the platform decides. |

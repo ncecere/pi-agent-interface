@@ -62,6 +62,16 @@ export class AgentProblem extends Error {
   }
 }
 
+/** The platform refused a create because the workspace already has an agent of that name. */
+function isNameTaken(error: unknown): boolean {
+  if (!(error instanceof PlatformError) || error.status !== 409) return false;
+  try {
+    return (JSON.parse(error.body) as { error?: { code?: string } }).error?.code === 'name_taken';
+  } catch {
+    return false;
+  }
+}
+
 export class WorkspaceAgents {
   private readonly personalCache = new Map<string, { at: number; team: WorkspaceTeam }>();
   private readonly modelsCache = new Map<string, { at: number; models: PlatformModel[] }>();
@@ -112,10 +122,13 @@ export class WorkspaceAgents {
     return models;
   }
 
-  /** The platform's catalog templates: the only ones a personal workspace can deploy. */
-  async templates(personId: string): Promise<PlatformTemplate[]> {
-    const all = await this.json<PlatformTemplate[]>(personId, '/v1/agent-templates');
-    return all.filter((template) => !template.teamId);
+  /**
+   * What the person can deploy: the platform's templates and the team
+   * templates published to the catalog (not a team's own unpublished ones,
+   * which a personal workspace never has). The platform checks again on create.
+   */
+  templates(personId: string): Promise<PlatformTemplate[]> {
+    return this.json<PlatformTemplate[]>(personId, '/v1/agent-templates');
   }
 
   private async resolveModel(personId: string, wanted: string | null | undefined) {
@@ -200,19 +213,33 @@ export class WorkspaceAgents {
           );
           continue;
         }
-        agent = await this.json<PlatformAgent>(
-          person.id,
-          `/v1/teams/${encodeURIComponent(team.slug)}/agents`,
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              name: spec.name,
-              description: spec.description,
-              ...(template ? { templateId: template.id } : {}),
-              ...(modelId ? { modelId } : {}),
-            }),
-          },
-        );
+        try {
+          agent = await this.json<PlatformAgent>(
+            person.id,
+            `/v1/teams/${encodeURIComponent(team.slug)}/agents`,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                name: spec.name,
+                description: spec.description,
+                ...(template ? { templateId: template.id } : {}),
+                ...(modelId ? { modelId } : {}),
+              }),
+            },
+          );
+        } catch (error) {
+          // Creation has no idempotency key; names are unique per workspace. A copy this app made
+          // before (a lost record, a timeout) is already there under its name: adopt it.
+          const existing = isNameTaken(error)
+            ? agents.find(
+                (candidate) =>
+                  candidate.teamId === team.id &&
+                  candidate.name.toLowerCase() === spec.name.toLowerCase(),
+              )
+            : undefined;
+          if (!existing) throw error;
+          agent = existing;
+        }
         await this.store.setProvidedCopy(person.id, spec.id, agent.id);
       } else if (modelId && agent.model?.id !== modelId) {
         try {

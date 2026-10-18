@@ -173,6 +173,23 @@ describe('Connect', () => {
     });
   });
 
+  it('can be told not to compare the platform account with the person’s own', async () => {
+    const connect = connectAt('https://chat.example.com');
+    const first = await connect.start('tim', '/');
+    await connect.finish('tim', platform.approve(first.url), first.pending, {
+      email: 'other@example.test',
+      match: 'off',
+    });
+    expect((await store.connection('tim'))?.platformEmail).toBe('tim@example.test');
+    const second = await connect.start('tim', '/');
+    await expect(
+      connect.finish('tim', platform.approve(second.url), second.pending, {
+        email: 'other@example.test',
+        match: 'require',
+      }),
+    ).rejects.toMatchObject({ code: 'account_mismatch' });
+  });
+
   it('refreshes an expired token once, however many requests want it', async () => {
     const connect = connectAt('https://chat.example.com');
     await connected(connect, 'tim');

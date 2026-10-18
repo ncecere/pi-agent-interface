@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type Agent,
   ApiError,
   api,
   type ChatView,
@@ -9,7 +10,7 @@ import {
   threadPath,
 } from '~/api/client';
 import type { AgentLive } from '~/components/agent/avatar/agent-live';
-import { markThreadBusy, noteNewThread, threadsKey } from '~/hooks/use-agents';
+import { AGENTS_KEY, markThreadBusy, noteNewThread, threadsKey } from '~/hooks/use-agents';
 import { useInboxActions } from '~/hooks/use-inbox';
 import {
   type AgentUIMessage,
@@ -279,7 +280,16 @@ export function useAgentThread({
             ],
       );
       try {
-        await api.post(threadPath(agentId, threadId, '/messages'), { text: content, requestId });
+        // A conversation with a team's agent is the person's own (private), not shared with the
+        // team's members; the platform fixes that with the first message.
+        const agent = queryClient
+          .getQueryData<Agent[]>(AGENTS_KEY)
+          ?.find((candidate) => candidate.id === agentId);
+        await api.post(threadPath(agentId, threadId, '/messages'), {
+          text: content,
+          requestId,
+          ...(!exists && agent?.kind === 'team' ? { visibility: 'private' } : {}),
+        });
         setPending((current) =>
           current.map((message) =>
             message.requestId === requestId && message.state === 'sending'
