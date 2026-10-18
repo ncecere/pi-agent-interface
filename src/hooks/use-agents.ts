@@ -85,3 +85,48 @@ export function noteNewThread(
 export function newThreadId(): string {
   return crypto.randomUUID();
 }
+
+// ── Making and managing one's own agents ────────────────────────────────────────────────────
+
+export interface AgentCatalog {
+  templates: { id: string; name: string; description: string }[];
+  models: { id: string; name: string }[];
+  defaultModelId: string | null;
+  allowModelChoice: boolean;
+  limit: number;
+  used: number;
+}
+
+export const useAgentCatalog = (enabled = true) =>
+  useQuery({
+    queryKey: ['agents', 'catalog'],
+    queryFn: () => api.get<AgentCatalog>('/api/agents/catalog'),
+    enabled,
+    staleTime: 60_000,
+  });
+
+export function useCreateAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; templateId: string; modelId?: string }) =>
+      api.post<Agent>('/api/agents', body),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+  });
+}
+
+export function useUpdateAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; name?: string; modelId?: string }) =>
+      api.patch<Agent>(`/api/agents/${encodeURIComponent(id)}`, body),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: AGENTS_KEY }),
+  });
+}
+
+export function useRemoveAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/agents/${encodeURIComponent(id)}`),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+  });
+}

@@ -162,6 +162,12 @@ export function ChatHomePage({ agentId }: { agentId?: string }) {
             </fieldset>
           )}
 
+          <p className="mt-4 hidden text-sm md:block">
+            <Link to="/settings/agents" className="text-[var(--accent-bright)] hover:underline">
+              Make your own agent
+            </Link>
+          </p>
+
           {agent && recent.length > 0 && (
             <div className="mt-9 hidden md:block">
               <h2 className="mb-1 text-[0.6875rem] font-semibold text-[var(--accent-bright)]">

@@ -134,6 +134,10 @@ const settingsChildren = [
     ),
   ),
   settingsPage(
+    '/settings/agents',
+    lazyRouteComponent(() => import('~/routes/settings/agents'), 'SettingsAgentsPage'),
+  ),
+  settingsPage(
     '/settings/conversations',
     lazyRouteComponent(
       () => import('~/routes/settings/conversations'),
@@ -167,6 +171,10 @@ const adminChildren = [
   adminPage(
     '/admin/people',
     lazyRouteComponent(() => import('~/routes/admin/people'), 'AdminPeoplePage'),
+  ),
+  adminPage(
+    '/admin/agents',
+    lazyRouteComponent(() => import('~/routes/admin/agents'), 'AdminAgentsPage'),
   ),
   adminPage(
     '/admin/branding',

@@ -1,4 +1,5 @@
-import { Check, ChevronDown, Search } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { Check, ChevronDown, Plus, Search } from 'lucide-react';
 import { memo, useMemo, useRef, useState } from 'react';
 import type { Agent } from '~/api/client';
 import { AgentAvatar, agentStatusLabel } from '~/components/agent/agent-avatar';
@@ -39,7 +40,18 @@ export const AgentPicker = memo(function AgentPicker({
   const [activeId, setActiveId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const visible = useMemo(() => agents.filter((agent) => matches(agent, query)), [agents, query]);
+  // Provided agents first, then the person's own; arrow keys follow the same order.
+  const visible = useMemo(
+    () =>
+      agents
+        .filter((agent) => matches(agent, query))
+        .sort((a, b) => Number(a.kind === 'personal') - Number(b.kind === 'personal')),
+    [agents, query],
+  );
+  const groups = [
+    { label: 'Provided', items: visible.filter((agent) => agent.kind !== 'personal') },
+    { label: 'Yours', items: visible.filter((agent) => agent.kind === 'personal') },
+  ].filter((group) => group.items.length > 0);
   const teams = useMemo(() => new Set(agents.map((agent) => agent.teamId)).size, [agents]);
   const active =
     visible.find((agent) => agent.id === activeId) ??
@@ -151,49 +163,72 @@ export const AgentPicker = memo(function AgentPicker({
               No agents match that search.
             </p>
           ) : (
-            visible.map((agent) => (
-              <button
-                type="button"
-                tabIndex={-1}
-                key={agent.id}
-                id={optionId(agent.id)}
-                role="option"
-                aria-selected={selected?.id === agent.id}
-                aria-disabled={!agent.enabled || undefined}
-                onPointerMove={() => setActiveId(agent.id)}
-                onClick={() => {
-                  if (!agent.enabled) return;
-                  onSelect(agent);
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex w-full cursor-pointer items-start gap-3 rounded-lg px-2.5 py-2 text-left',
-                  active?.id === agent.id && 'bg-[var(--bg-control-hover)]',
-                  !agent.enabled && 'cursor-not-allowed opacity-60',
+            groups.map((group) => (
+              // biome-ignore lint/a11y/useSemanticElements: a listbox's options are grouped with role="group" (WAI-ARIA), not a fieldset
+              <div key={group.label} role="group" aria-label={group.label}>
+                {groups.length > 1 && (
+                  <p
+                    aria-hidden="true"
+                    className="px-2.5 pt-2 pb-1 text-xs font-medium text-[var(--text-muted)]"
+                  >
+                    {group.label}
+                  </p>
                 )}
-              >
-                <AgentAvatar agent={agent} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-[var(--text-primary)]">
-                      {agent.name}
-                    </span>
-                    {teams > 1 && (
-                      <span className="shrink-0 text-[0.6875rem] text-[var(--text-muted)]">
-                        {agent.teamName}
-                      </span>
+                {group.items.map((agent) => (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    key={agent.id}
+                    id={optionId(agent.id)}
+                    role="option"
+                    aria-selected={selected?.id === agent.id}
+                    aria-disabled={!agent.enabled || undefined}
+                    onPointerMove={() => setActiveId(agent.id)}
+                    onClick={() => {
+                      if (!agent.enabled) return;
+                      onSelect(agent);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      'flex w-full cursor-pointer items-start gap-3 rounded-lg px-2.5 py-2 text-left',
+                      active?.id === agent.id && 'bg-[var(--bg-control-hover)]',
+                      !agent.enabled && 'cursor-not-allowed opacity-60',
                     )}
-                  </span>
-                  <span className="line-clamp-2 text-xs text-[var(--text-muted)]">
-                    {agent.description || agent.templateName}
-                  </span>
-                </span>
-                {selected?.id === agent.id && (
-                  <Check className="mt-1 size-4 shrink-0 text-[var(--accent-bright)]" />
-                )}
-              </button>
+                  >
+                    <AgentAvatar agent={agent} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate text-sm font-medium text-[var(--text-primary)]">
+                          {agent.name}
+                        </span>
+                        {teams > 1 && (
+                          <span className="shrink-0 text-[0.6875rem] text-[var(--text-muted)]">
+                            {agent.teamName}
+                          </span>
+                        )}
+                      </span>
+                      <span className="line-clamp-2 text-xs text-[var(--text-muted)]">
+                        {agent.description || agent.templateName}
+                      </span>
+                    </span>
+                    {selected?.id === agent.id && (
+                      <Check className="mt-1 size-4 shrink-0 text-[var(--accent-bright)]" />
+                    )}
+                  </button>
+                ))}
+              </div>
             ))
           )}
+        </div>
+        <div className="border-t border-[var(--border-subtle)] p-1.5">
+          <Link
+            to="/settings/agents"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-control-hover)] hover:text-[var(--text-primary)]"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            Make or manage your agents
+          </Link>
         </div>
       </PopoverContent>
     </Popover>

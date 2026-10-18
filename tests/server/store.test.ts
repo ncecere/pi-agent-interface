@@ -130,6 +130,24 @@ function contract(name: string, make: () => Promise<Store>) {
       });
     });
 
+    it('keeps each person’s own agents, oldest first', async () => {
+      await store.signIn(tim, null);
+      await store.signIn(bob, null);
+      await store.addPersonalAgent('tim', 'a1', 'Coder');
+      await store.addPersonalAgent('tim', 'b2', 'Researcher');
+      await store.renamePersonalAgent('tim', 'a1', 'Code helper');
+      expect((await store.personalAgents('tim')).map((agent) => [agent.slot, agent.name])).toEqual([
+        ['a1', 'Code helper'],
+        ['b2', 'Researcher'],
+      ]);
+      expect(await store.personalAgents('bob')).toEqual([]);
+      await store.removePersonalAgent('tim', 'a1');
+      expect((await store.personalAgents('tim')).map((agent) => agent.slot)).toEqual(['b2']);
+      await expect(store.renamePersonalAgent('bob', 'b2', 'x')).rejects.toMatchObject({
+        code: 'not_found',
+      });
+    });
+
     it('keeps an audit log of who changed what, newest first', async () => {
       await store.signIn(tim, 'tim@example.test');
       await store.signIn(bob, null);
@@ -174,7 +192,7 @@ describe.skipIf(!available)('PgStore', () => {
     url.pathname = `/${name}`;
     const store = PgStore.connect(url.href);
     stores.push(store);
-    expect(await migrate(store.sql)).toEqual([1]);
+    expect(await migrate(store.sql)).toEqual([1, 2]);
     expect(await migrate(store.sql)).toEqual([]);
   });
 

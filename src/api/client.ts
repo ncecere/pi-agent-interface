@@ -7,7 +7,11 @@ import type { components } from './schema.gen';
  * platform's, passed through unchanged (types from its OpenAPI: `pnpm gen:api`).
  */
 type Schemas = components['schemas'];
-export type Agent = Schemas['Agent'];
+/** A platform agent as this app lists it: with the app's own name for it and its kind. */
+export type Agent = Schemas['Agent'] & {
+  /** provided: every person gets their own copy (Admin → Agents); personal: made by the person. */
+  kind?: 'provided' | 'personal';
+};
 export type AgentThread = Schemas['AgentThread'];
 export type ChatView = Schemas['ChatView'];
 export type ChatViewMessage = Schemas['ChatMessage'];

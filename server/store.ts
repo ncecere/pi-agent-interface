@@ -31,6 +31,14 @@ export interface AuditEntry {
   details: Record<string, unknown>;
 }
 
+/** An agent a person made themselves; on the platform it is the agent with key `u:<person>:p:<slot>`. */
+export interface PersonalAgent {
+  slot: string;
+  /** What the person calls it. */
+  name: string;
+  createdAt: Date;
+}
+
 export interface PersonChange {
   role?: Role;
   status?: Status;
@@ -75,6 +83,11 @@ export interface Store {
   /** A person's saved preferences, by key (appearance, inbox…). */
   prefs(personId: string): Promise<Record<string, unknown>>;
   setPref(personId: string, key: string, value: unknown): Promise<void>;
+  /** A person's own agents, oldest first. */
+  personalAgents(personId: string): Promise<PersonalAgent[]>;
+  addPersonalAgent(personId: string, slot: string, name: string): Promise<void>;
+  renamePersonalAgent(personId: string, slot: string, name: string): Promise<void>;
+  removePersonalAgent(personId: string, slot: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -187,6 +200,33 @@ export class MemoryStore implements Store {
 
   async audit(limit: number) {
     return [...this.log].reverse().slice(0, limit);
+  }
+
+  private readonly personal = new Map<string, PersonalAgent[]>();
+
+  async personalAgents(personId: string) {
+    return (this.personal.get(personId) ?? []).map((agent) => ({ ...agent }));
+  }
+
+  async addPersonalAgent(personId: string, slot: string, name: string) {
+    if (!this.rows.has(personId)) throw new StoreError('not_found', 'No such person');
+    this.personal.set(personId, [
+      ...(this.personal.get(personId) ?? []),
+      { slot, name, createdAt: new Date() },
+    ]);
+  }
+
+  async renamePersonalAgent(personId: string, slot: string, name: string) {
+    const agent = this.personal.get(personId)?.find((candidate) => candidate.slot === slot);
+    if (!agent) throw new StoreError('not_found', 'No such agent');
+    agent.name = name;
+  }
+
+  async removePersonalAgent(personId: string, slot: string) {
+    this.personal.set(
+      personId,
+      (this.personal.get(personId) ?? []).filter((agent) => agent.slot !== slot),
+    );
   }
 
   private readonly settingsMap = new Map<string, unknown>();

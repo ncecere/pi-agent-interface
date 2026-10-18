@@ -174,7 +174,7 @@ describe('AGENT_MODEL', () => {
       expect(fake.calls.find((call) => call.method === 'PUT')?.body).not.toHaveProperty('modelId');
       vi.unstubAllGlobals();
     }
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not a model published'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is not published to team'));
   });
 
   it('leaves models to the platform when unset, without asking for the list', async () => {

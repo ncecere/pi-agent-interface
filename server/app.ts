@@ -2,9 +2,20 @@ import { type Context, Hono, type MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import * as oidc from 'openid-client';
+import {
+  type AgentSettings,
+  ASSISTANT_ID,
+  defaultAgentSettings,
+  defaultProvided,
+  keys,
+  kindOfKey,
+  type ProvidedAgent,
+  parseAgentSettings,
+  parseProvided,
+} from './agent-settings.ts';
 import { type Branding, defaultBranding, parseBranding } from './branding.ts';
 import type { Config } from './config.ts';
-import { Platform, PlatformError } from './platform.ts';
+import { Platform, type PlatformAgent, PlatformError } from './platform.ts';
 import {
   type LoginState,
   now,
@@ -488,6 +499,66 @@ export function createApp(config: Config, deps: { store: Store; platform?: Platf
     return c.json({ data: parsed.branding });
   });
 
+  /** Everything Admin → Agents shows: the settings, the provided agents, and what the platform offers. */
+  app.get('/api/admin/agents', async (c) => {
+    try {
+      const [settings, provided, available] = await Promise.all([
+        agentSettings(),
+        providedAgents(),
+        offered(),
+      ]);
+      return c.json({
+        data: {
+          settings,
+          provided,
+          models: available.models.map(({ id, name }) => ({ id, name })),
+          templates: available.templates.map(({ id, name, description, teamId }) => ({
+            id,
+            name,
+            description: description ?? '',
+            team: Boolean(teamId),
+          })),
+          environmentModel: config.agentModel || null,
+        },
+      });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
+  const invalid = (c: Context, problems: Record<string, string>) =>
+    c.json(
+      { error: { code: 'invalid', message: 'Check the highlighted fields.', details: problems } },
+      400,
+    );
+
+  app.put('/api/admin/settings/agents', async (c) => {
+    try {
+      const parsed = parseAgentSettings(await c.req.json().catch(() => null), await offered());
+      if ('problems' in parsed) return invalid(c, parsed.problems);
+      await store.setSetting('agents', parsed.value, c.get('person').id);
+      return c.json({ data: parsed.value });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
+  app.put('/api/admin/settings/provided', async (c) => {
+    try {
+      const parsed = parseProvided(await c.req.json().catch(() => null), await offered());
+      if ('problems' in parsed) return invalid(c, parsed.problems);
+      // The built-in assistant stays first.
+      const value = [
+        ...parsed.value.filter((agent) => agent.id === ASSISTANT_ID),
+        ...parsed.value.filter((agent) => agent.id !== ASSISTANT_ID),
+      ];
+      await store.setSetting('provided', { agents: value }, c.get('person').id);
+      return c.json({ data: value });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
   app.get('/api/admin/audit', async (c) => {
     const entries = await store.audit(Number(c.req.query('limit') ?? 100) || 100);
     return c.json({
@@ -521,11 +592,231 @@ export function createApp(config: Config, deps: { store: Store; platform?: Platf
     return fail(c, 502, 'platform_unreachable', 'The agent platform could not be reached.');
   };
 
-  /** The person's agents. For now one: their assistant, made on first use. */
+  // ---- Agent settings (Admin → Agents) -----------------------------------------
+
+  const agentSettings = async (): Promise<AgentSettings> => ({
+    ...defaultAgentSettings(),
+    ...((await store.setting('agents')) as Partial<AgentSettings> | null),
+  });
+  const providedAgents = async (): Promise<ProvidedAgent[]> => {
+    const saved = (await store.setting('provided')) as { agents?: ProvidedAgent[] } | null;
+    return saved?.agents?.length ? saved.agents : defaultProvided(config.agentName);
+  };
+  /** What the platform offers this app: its team's published models and the templates it may use. */
+  const offered = async () => {
+    const [models, templates] = await Promise.all([platform.teamModels(), platform.templates()]);
+    return {
+      models: models.filter((model) => model.enabled),
+      templates,
+      modelIds: new Set(models.filter((model) => model.enabled).map((model) => model.id)),
+      templateIds: new Set(templates.map((template) => template.id)),
+    };
+  };
+  /** The default model, resolved: the admin's choice, else AGENT_MODEL. Null: the platform decides. */
+  const defaultModelId = async (settings: AgentSettings) =>
+    (await platform.resolveModelId(settings.defaultModelId)) ??
+    (await platform.configuredModelId());
+  const allowedTemplates = async (settings: AgentSettings) => {
+    const templates = await platform.templates();
+    return settings.allowedTemplateIds === null
+      ? templates
+      : templates.filter((template) => settings.allowedTemplateIds!.includes(template.id));
+  };
+
+  /** What the app shows for an agent: the platform's record with the app's own name and kind. */
+  const agentView = (
+    agent: PlatformAgent,
+    extra: { name: string; description: string; kind: 'provided' | 'personal' },
+  ) => ({ ...agent, ...extra });
+
+  /**
+   * The person's agents: every provided agent (made the first time it is
+   * listed, and kept on the model it should be on) and the agents they made.
+   */
   app.get('/api/agents', async (c) => {
+    const person = c.get('person');
+    const who = person.name || person.email;
     try {
-      const agent = await platform.ensureAssistant(c.get('session').user);
-      return c.json({ data: [{ ...agent, name: config.agentName }] });
+      const [settings, provided, mine, managed] = await Promise.all([
+        agentSettings(),
+        providedAgents(),
+        store.personalAgents(person.id),
+        platform.managedAgents(),
+      ]);
+      const fallbackModel = await defaultModelId(settings);
+      const out = [];
+      for (const spec of provided) {
+        const key = keys.provided(person.id, spec.id);
+        const modelId = (await platform.resolveModelId(spec.modelId)) ?? fallbackModel;
+        let agent = managed.get(key);
+        if (!agent || (modelId && agent.model?.id !== modelId))
+          agent = await platform.ensureAgent(key, {
+            // Named for the team's owners, who see every person's agent in the console.
+            name: `${spec.name} · ${who}`,
+            description: `${spec.name} for ${person.email || who}`,
+            ...(spec.templateId
+              ? { templateId: spec.templateId }
+              : config.agentTemplate
+                ? { template: config.agentTemplate }
+                : {}),
+            modelId,
+          });
+        out.push(
+          agentView(agent, { name: spec.name, description: spec.description, kind: 'provided' }),
+        );
+      }
+      for (const row of mine) {
+        const agent = managed.get(keys.personal(person.id, row.slot));
+        if (!agent) {
+          // Deleted on the platform (by a team owner): forget it here too.
+          await store.removePersonalAgent(person.id, row.slot);
+          continue;
+        }
+        out.push(agentView(agent, { name: row.name, description: '', kind: 'personal' }));
+      }
+      return c.json({ data: out });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
+  /** What a person may make agents from: the allowed templates, the models, and their limit. */
+  app.get('/api/agents/catalog', async (c) => {
+    try {
+      const settings = await agentSettings();
+      const [templates, models, mine] = await Promise.all([
+        allowedTemplates(settings),
+        settings.allowModelChoice ? platform.teamModels() : Promise.resolve([]),
+        store.personalAgents(c.get('person').id),
+      ]);
+      return c.json({
+        data: {
+          templates: templates.map(({ id, name, description }) => ({
+            id,
+            name,
+            description: description ?? '',
+          })),
+          models: models.filter((model) => model.enabled).map(({ id, name }) => ({ id, name })),
+          defaultModelId: await defaultModelId(settings),
+          allowModelChoice: settings.allowModelChoice,
+          limit: settings.personalLimit,
+          used: mine.length,
+        },
+      });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
+  /** Makes one of the person's own agents. */
+  app.post('/api/agents', async (c) => {
+    const person = c.get('person');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: unknown;
+      templateId?: unknown;
+      modelId?: unknown;
+    };
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name || name.length > 60)
+      return fail(c, 400, 'invalid_name', 'Give the agent a name of 1 to 60 characters.');
+    try {
+      const settings = await agentSettings();
+      const mine = await store.personalAgents(person.id);
+      if (mine.length >= settings.personalLimit)
+        return fail(
+          c,
+          409,
+          'limit',
+          settings.personalLimit === 0
+            ? 'Making agents is turned off. Ask an administrator.'
+            : `You can have up to ${settings.personalLimit} agents of your own. Delete one to make another.`,
+        );
+      const templates = await allowedTemplates(settings);
+      const template = templates.find((candidate) => candidate.id === body.templateId);
+      if (!template)
+        return fail(c, 400, 'invalid_template', 'Choose one of the templates offered.');
+      let modelId = await defaultModelId(settings);
+      if (settings.allowModelChoice && typeof body.modelId === 'string' && body.modelId) {
+        modelId = await platform.resolveModelId(body.modelId);
+        if (!modelId) return fail(c, 400, 'invalid_model', 'Choose one of the models offered.');
+      }
+      const slot = token(6).replace(/[^A-Za-z0-9]/g, 'x');
+      const who = person.name || person.email;
+      const agent = await platform.ensureAgent(keys.personal(person.id, slot), {
+        name: `${name} · ${who}`,
+        description: `${name}, made by ${person.email || who}`,
+        templateId: template.id,
+        modelId,
+      });
+      await store.addPersonalAgent(person.id, slot, name);
+      return c.json({ data: agentView(agent, { name, description: '', kind: 'personal' }) }, 201);
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
+  /** One of the person's own agents (renamed, moved to another model, deleted), or a 404. */
+  const ownPersonalAgent = async (c: Context<Env>) => {
+    const agentId = c.req.param('agentId') ?? '';
+    if (!UUID.test(agentId)) return null;
+    const person = c.get('person');
+    const agent = [...(await platform.managedAgents()).values()].find(
+      (candidate) => candidate.id === agentId,
+    );
+    const kind = kindOfKey(person.id, agent?.externalKey);
+    return agent && kind?.kind === 'personal' ? { agent, slot: kind.slot } : null;
+  };
+
+  app.patch('/api/agents/:agentId', async (c) => {
+    const person = c.get('person');
+    const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; modelId?: unknown };
+    try {
+      const own = await ownPersonalAgent(c);
+      if (!own) return fail(c, 404, 'not_found', 'Agent not found');
+      const settings = await agentSettings();
+      const change: { name?: string; modelId?: string } = {};
+      let name: string | undefined;
+      if (body.name !== undefined) {
+        name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name || name.length > 60)
+          return fail(c, 400, 'invalid_name', 'A name of 1 to 60 characters.');
+        change.name = `${name} · ${person.name || person.email}`.slice(0, 100);
+      }
+      if (body.modelId !== undefined) {
+        if (!settings.allowModelChoice)
+          return fail(c, 403, 'model_fixed', 'Your administrator chooses the model.');
+        const modelId = await platform.resolveModelId(
+          typeof body.modelId === 'string' ? body.modelId : null,
+        );
+        if (!modelId) return fail(c, 400, 'invalid_model', 'Choose one of the models offered.');
+        change.modelId = modelId;
+      }
+      const agent = Object.keys(change).length
+        ? await platform.patchAgent(own.agent, change)
+        : own.agent;
+      if (name) await store.renamePersonalAgent(person.id, own.slot, name);
+      const rows = await store.personalAgents(person.id);
+      const row = rows.find((candidate) => candidate.slot === own.slot);
+      return c.json({
+        data: agentView(agent, {
+          name: row?.name ?? agent.name,
+          description: '',
+          kind: 'personal',
+        }),
+      });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
+  });
+
+  /** Deletes one of the person's own agents and all its conversations. Provided agents cannot be deleted. */
+  app.delete('/api/agents/:agentId', async (c) => {
+    try {
+      const own = await ownPersonalAgent(c);
+      if (!own) return fail(c, 404, 'not_found', 'Agent not found');
+      await platform.deleteAgent(own.agent.id);
+      await store.removePersonalAgent(c.get('person').id, own.slot);
+      return c.json({ data: { ok: true } });
     } catch (error) {
       return platformFailure(c, error);
     }

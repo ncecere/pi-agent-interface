@@ -20,6 +20,7 @@ import { useTheme } from '~/providers/theme-provider';
 const TABS = [
   { to: '/settings', label: 'Account', exact: true },
   { to: '/settings/customization', label: 'Customization', exact: false },
+  { to: '/settings/agents', label: 'My agents', exact: false },
   { to: '/settings/conversations', label: 'Conversations', exact: false },
 ] as const;
 

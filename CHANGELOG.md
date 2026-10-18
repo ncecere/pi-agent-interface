@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Agents.** Admin → Agents sets the default model (instead of `AGENT_MODEL`, which remains the fallback), how
+  many agents each person may make (default 5), whether people choose the model, and the templates allowed.
+  **Provided agents**: administrators add agents everyone gets, each person their own private copy (the built-in
+  assistant is the first). **My agents** (Settings): people make their own agents from the allowed templates,
+  rename them, move them to another model, and delete them. The agent picker groups provided agents and your own.
 - **The inbox follows you between devices**: pinned, snoozed, done, archived and read state is saved to your
   account. Each conversation's latest change wins, and removals (an unpin, say) carry over too.
 - **The sidebar** is resizable (drag its edge, or use the arrow keys on it; double-click resets) and shows

@@ -56,14 +56,74 @@ function fakePlatform() {
     },
   };
   const relayed: string[] = [];
+  const created: { key: string; templateId?: string; modelId?: string | null }[] = [];
+  const deleted: string[] = [];
+  let next = 0;
+  const models = [
+    { id: 'm-luna', name: 'gpt-6-luna', enabled: true },
+    { id: 'm-oss', name: 'gpt-oss-120b', enabled: true },
+  ];
+  const templates = [
+    { id: 't-assistant', slug: 'assistant', name: 'Assistant' },
+    { id: 't-coder', slug: 'coder', name: 'Coder' },
+  ];
+  const byKey = () =>
+    new Map(
+      Object.values(agents)
+        .filter((agent) => agent.externalKey)
+        .map((agent) => [agent.externalKey!, agent]),
+    );
   const platform = {
     relayed,
+    created,
+    deleted,
     async ensureAssistant(user: { id: string }) {
       return Object.values(agents).find((agent) => agent.externalKey === `u:${user.id}`)!;
     },
     async isOwnAgent(user: typeof tim, agentId: string) {
       const agent = agents[agentId];
       return agent ? ownsAgent(user, agent) : false;
+    },
+    async managedAgents() {
+      return byKey();
+    },
+    async teamModels() {
+      return models;
+    },
+    async templates() {
+      return templates;
+    },
+    async resolveModelId(wanted: string | null | undefined) {
+      return models.find((model) => model.id === wanted || model.name === wanted)?.id ?? null;
+    },
+    async configuredModelId() {
+      return null;
+    },
+    async ensureAgent(
+      key: string,
+      spec: { name: string; templateId?: string; modelId?: string | null },
+    ) {
+      created.push({ key, templateId: spec.templateId, modelId: spec.modelId });
+      const existing = byKey().get(key);
+      if (existing) return existing;
+      const id = `00000000-0000-4000-8000-${String(++next).padStart(12, '0')}`;
+      agents[id] = {
+        id,
+        name: spec.name,
+        description: '',
+        enabled: true,
+        running: false,
+        externalKey: key,
+      };
+      return agents[id];
+    },
+    async patchAgent(agent: PlatformAgent, body: { name?: string; modelId?: string }) {
+      agents[agent.id] = { ...agents[agent.id]!, ...(body.name ? { name: body.name } : {}) };
+      return agents[agent.id]!;
+    },
+    async deleteAgent(id: string) {
+      deleted.push(id);
+      delete agents[id];
     },
     async fetch(path: string, init: RequestInit = {}) {
       relayed.push(`${init.method ?? 'GET'} ${path}`);
@@ -535,5 +595,179 @@ describe('branding and overview', () => {
       await app.request('/api/admin/overview', { headers: { Cookie: tim.cookie } })
     ).json();
     expect(overview.data).toMatchObject({ people: 2, admins: 1, suspended: 0, activeToday: 2 });
+  });
+});
+
+describe('agents', () => {
+  const json = (headers: Record<string, string>) => ({
+    ...headers,
+    'Content-Type': 'application/json',
+  });
+  const as = async (account: 'tim' | 'bob') => {
+    const { cookie, csrf } = await signIn(account);
+    return { Cookie: cookie, 'X-CSRF-Token': csrf, Origin: 'http://localhost:5177' };
+  };
+  const list = async (headers: Record<string, string>) =>
+    (await (await app.request('/api/agents', { headers })).json()).data as {
+      id: string;
+      name: string;
+      kind: string;
+    }[];
+  const make = (headers: Record<string, string>, body: unknown) =>
+    app.request('/api/agents', {
+      method: 'POST',
+      headers: json(headers),
+      body: JSON.stringify(body),
+    });
+
+  it('gives everyone the built-in assistant, named by the app', async () => {
+    const tim = await as('tim');
+    expect(await list(tim)).toEqual([
+      expect.objectContaining({ id: TIM_AGENT, name: 'Assistant', kind: 'provided' }),
+    ]);
+  });
+
+  it('makes a person their own agent from an allowed template, and lists it', async () => {
+    const tim = await as('tim');
+    const response = await make(tim, {
+      name: 'Code helper',
+      templateId: 't-coder',
+      modelId: 'gpt-oss-120b',
+    });
+    expect(response.status).toBe(201);
+    const agent = (await response.json()).data;
+    expect(agent).toMatchObject({ name: 'Code helper', kind: 'personal' });
+    expect(platform.created.at(-1)).toMatchObject({ templateId: 't-coder', modelId: 'm-oss' });
+    expect(platform.created.at(-1)!.key).toMatch(/^u:[0-9a-f]+:p:/);
+    expect((await list(tim)).map((each) => each.name)).toEqual(['Assistant', 'Code helper']);
+  });
+
+  it('refuses names, templates and models that are not allowed', async () => {
+    const tim = await as('tim');
+    expect((await make(tim, { name: '', templateId: 't-coder' })).status).toBe(400);
+    expect((await make(tim, { name: 'X', templateId: 't-nope' })).status).toBe(400);
+    expect((await make(tim, { name: 'X', templateId: 't-coder', modelId: 'm-nope' })).status).toBe(
+      400,
+    );
+  });
+
+  it('keeps a person to the limit', async () => {
+    const tim = await as('tim');
+    for (let i = 0; i < 5; i++)
+      expect((await make(tim, { name: `A${i}`, templateId: 't-coder' })).status).toBe(201);
+    const sixth = await make(tim, { name: 'A5', templateId: 't-coder' });
+    expect(sixth.status).toBe(409);
+    expect((await sixth.json()).error.code).toBe('limit');
+  });
+
+  it('renames and deletes a person’s own agent, but not a provided one or another person’s', async () => {
+    const tim = await as('tim');
+    const bob = await as('bob');
+    const mine = (await (await make(tim, { name: 'Helper', templateId: 't-coder' })).json()).data;
+    const renamed = await app.request(`/api/agents/${mine.id}`, {
+      method: 'PATCH',
+      headers: json(tim),
+      body: JSON.stringify({ name: 'Better helper' }),
+    });
+    expect((await renamed.json()).data.name).toBe('Better helper');
+    expect(
+      (await app.request(`/api/agents/${mine.id}`, { method: 'DELETE', headers: bob })).status,
+    ).toBe(404);
+    expect(
+      (await app.request(`/api/agents/${TIM_AGENT}`, { method: 'DELETE', headers: tim })).status,
+    ).toBe(404);
+    expect(
+      (await app.request(`/api/agents/${mine.id}`, { method: 'DELETE', headers: tim })).status,
+    ).toBe(200);
+    expect(platform.deleted).toEqual([mine.id]);
+    expect((await list(tim)).map((each) => each.name)).toEqual(['Assistant']);
+  });
+
+  it('gives everyone each provided agent an administrator adds', async () => {
+    app = createApp(
+      { ...config, initialAdminEmail: 'tim@example.test' },
+      { store: new MemoryStore(), platform: platform as unknown as Platform },
+    );
+    const tim = await as('tim');
+    const saved = await app.request('/api/admin/settings/provided', {
+      method: 'PUT',
+      headers: json(tim),
+      body: JSON.stringify({
+        agents: [
+          { id: 'assistant', name: 'Assistant', description: '', templateId: null, modelId: null },
+          {
+            id: 'hr',
+            name: 'HR Helper',
+            description: 'Benefits and leave',
+            templateId: 't-assistant',
+            modelId: 'm-luna',
+          },
+        ],
+      }),
+    });
+    expect(saved.status).toBe(200);
+    const bob = await as('bob');
+    const bobs = await list(bob);
+    expect(bobs.map((each) => each.name)).toEqual(['Assistant', 'HR Helper']);
+    expect(platform.created.find((each) => each.key.endsWith(':m:hr'))).toMatchObject({
+      templateId: 't-assistant',
+      modelId: 'm-luna',
+    });
+    // The built-in assistant cannot be removed.
+    const removed = await app.request('/api/admin/settings/provided', {
+      method: 'PUT',
+      headers: json(tim),
+      body: JSON.stringify({
+        agents: [{ id: 'hr', name: 'HR', description: '', templateId: null, modelId: null }],
+      }),
+    });
+    expect(removed.status).toBe(400);
+  });
+
+  it('lets administrators turn model choice off and set the limit, within what the platform offers', async () => {
+    app = createApp(
+      { ...config, initialAdminEmail: 'tim@example.test' },
+      { store: new MemoryStore(), platform: platform as unknown as Platform },
+    );
+    const tim = await as('tim');
+    const put = (body: unknown) =>
+      app.request('/api/admin/settings/agents', {
+        method: 'PUT',
+        headers: json(tim),
+        body: JSON.stringify(body),
+      });
+    expect(
+      (
+        await put({
+          defaultModelId: 'm-nope',
+          personalLimit: 5,
+          allowModelChoice: true,
+          allowedTemplateIds: null,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await put({
+          defaultModelId: 'm-oss',
+          personalLimit: 1,
+          allowModelChoice: false,
+          allowedTemplateIds: ['t-coder'],
+        })
+      ).status,
+    ).toBe(200);
+    const catalog = (await (await app.request('/api/agents/catalog', { headers: tim })).json())
+      .data;
+    expect(catalog).toMatchObject({
+      allowModelChoice: false,
+      limit: 1,
+      models: [],
+      defaultModelId: 'm-oss',
+    });
+    expect(catalog.templates.map((template: { id: string }) => template.id)).toEqual(['t-coder']);
+    // The model asked for is ignored when choice is off: the default is used.
+    await make(tim, { name: 'One', templateId: 't-coder', modelId: 'm-luna' });
+    expect(platform.created.at(-1)).toMatchObject({ modelId: 'm-oss' });
+    expect((await make(tim, { name: 'Two', templateId: 't-coder' })).status).toBe(409);
   });
 });

@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import {
   ArrowLeft,
+  Bot,
   LayoutDashboard,
   type LucideIcon,
   Palette,
@@ -17,7 +18,7 @@ import { cn } from '~/lib/utils';
 /** Administration, as Open Chat Interface lays it out: a grouped page list beside the page. */
 
 interface NavItem {
-  to: '/admin' | '/admin/people' | '/admin/branding' | '/admin/audit';
+  to: '/admin' | '/admin/people' | '/admin/agents' | '/admin/branding' | '/admin/audit';
   label: string;
   icon: LucideIcon;
 }
@@ -25,7 +26,13 @@ interface NavItem {
 const OVERVIEW: NavItem = { to: '/admin', label: 'Overview', icon: LayoutDashboard };
 const SECTIONS: { label: string; items: NavItem[] }[] = [
   { label: 'People', items: [{ to: '/admin/people', label: 'People', icon: Users }] },
-  { label: 'Instance', items: [{ to: '/admin/branding', label: 'Branding', icon: Palette }] },
+  {
+    label: 'Instance',
+    items: [
+      { to: '/admin/agents', label: 'Agents', icon: Bot },
+      { to: '/admin/branding', label: 'Branding', icon: Palette },
+    ],
+  },
   { label: 'Records', items: [{ to: '/admin/audit', label: 'Audit log', icon: ScrollText }] },
 ];
 

@@ -95,3 +95,56 @@ export function useSaveBranding() {
     },
   });
 }
+
+export interface AgentSettings {
+  defaultModelId: string | null;
+  personalLimit: number;
+  allowModelChoice: boolean;
+  allowedTemplateIds: string[] | null;
+}
+
+export interface ProvidedAgent {
+  id: string;
+  name: string;
+  description: string;
+  templateId: string | null;
+  modelId: string | null;
+}
+
+export interface AgentsAdmin {
+  settings: AgentSettings;
+  provided: ProvidedAgent[];
+  models: { id: string; name: string }[];
+  templates: { id: string; name: string; description: string; team: boolean }[];
+  environmentModel: string | null;
+}
+
+export const useAgentsAdmin = () =>
+  useQuery({
+    queryKey: ['admin', 'agents'],
+    queryFn: () => api.get<AgentsAdmin>('/api/admin/agents'),
+  });
+
+export function useSaveAgentSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: AgentSettings) =>
+      api.put<AgentSettings>('/api/admin/settings/agents', settings),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'agents'] });
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}
+
+export function useSaveProvided() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (agents: ProvidedAgent[]) =>
+      api.put<ProvidedAgent[]>('/api/admin/settings/provided', { agents }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'agents'] });
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}

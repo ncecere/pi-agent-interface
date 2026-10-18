@@ -3,6 +3,7 @@ import {
   type AuditEntry,
   LAST_ADMIN_MESSAGE,
   type Person,
+  type PersonalAgent,
   type PersonChange,
   type Store,
   StoreError,
@@ -53,6 +54,19 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         details jsonb not null default '{}'
       );
       create index audit_log_at on audit_log (at desc);
+    `,
+  },
+  {
+    version: 2,
+    name: 'personal agents',
+    sql: `
+      create table personal_agents (
+        person_id text not null references people (id) on delete cascade,
+        slot text not null,
+        name text not null,
+        created_at timestamptz not null default now(),
+        primary key (person_id, slot)
+      );
     `,
   },
 ];
@@ -228,6 +242,33 @@ export class PgStore implements Store {
       targetId: row.target_id,
       details: row.details,
     }));
+  }
+
+  async personalAgents(personId: string): Promise<PersonalAgent[]> {
+    const rows = await this.sql<{ slot: string; name: string; created_at: Date }[]>`
+      select slot, name, created_at from personal_agents where person_id = ${personId} order by created_at, slot`;
+    return rows.map((row) => ({ slot: row.slot, name: row.name, createdAt: row.created_at }));
+  }
+
+  async addPersonalAgent(personId: string, slot: string, name: string) {
+    try {
+      await this
+        .sql`insert into personal_agents (person_id, slot, name) values (${personId}, ${slot}, ${name})`;
+    } catch (error) {
+      if ((error as { code?: string }).code === '23503')
+        throw new StoreError('not_found', 'No such person');
+      throw error;
+    }
+  }
+
+  async renamePersonalAgent(personId: string, slot: string, name: string) {
+    const rows = await this
+      .sql`update personal_agents set name = ${name} where person_id = ${personId} and slot = ${slot} returning slot`;
+    if (rows.length === 0) throw new StoreError('not_found', 'No such agent');
+  }
+
+  async removePersonalAgent(personId: string, slot: string) {
+    await this.sql`delete from personal_agents where person_id = ${personId} and slot = ${slot}`;
   }
 
   async setting(key: string) {
