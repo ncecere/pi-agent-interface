@@ -13,6 +13,7 @@ import {
   Clock,
   Ellipsis,
   type LucideIcon,
+  Pencil,
   Pin,
   PinOff,
   Trash2,
@@ -42,7 +43,7 @@ import {
   DropdownMenuTrigger,
 } from '~/components/ui/dropdown-menu';
 import { Spinner } from '~/components/ui/spinner';
-import { useDeleteThread } from '~/hooks/use-agents';
+import { useDeleteThread, useRenameThread } from '~/hooks/use-agents';
 import { type InboxActions, useInbox, useInboxActions } from '~/hooks/use-inbox';
 import { keepFocusWhenRemoved } from '~/lib/focus-return';
 import {
@@ -455,6 +456,68 @@ function StatusBadge({
 const whenLabel = (until: number) =>
   new Date(until).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
+/** Names a conversation: the platform's title is the start of its first message. */
+function RenameDialog({
+  agentId,
+  threadId,
+  title,
+  onClose,
+}: {
+  agentId: string;
+  threadId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const rename = useRenameThread();
+  const [value, setValue] = useState(title);
+  const name = value.replace(/\s+/g, ' ').trim();
+  const valid = name.length > 0 && name.length <= 200 && name !== title;
+  const save = () => {
+    if (!valid) return;
+    rename.mutate(
+      { agentId, threadId, title: name },
+      { onError: () => toast.error("The conversation couldn't be renamed. Try again.") },
+    );
+    onClose();
+  };
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rename conversation</DialogTitle>
+          <DialogDescription>
+            The name shows in your sidebar and search, on every device.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            save();
+          }}
+        >
+          <input
+            aria-label="Conversation name"
+            value={value}
+            maxLength={200}
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => setValue(event.target.value)}
+            className="h-10 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-control)]/60 px-3 text-sm"
+          />
+          <DialogFooter className="mt-4">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={!valid}>
+              Rename
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Snooze until a time of the person's choosing. */
 function CustomSnooze({
   onSnooze,
@@ -550,6 +613,7 @@ function InboxRow({
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
   const [custom, setCustom] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   // Right-click opens the row's menu, as t3code's context menu.
   const [menuOpen, setMenuOpen] = useState(false);
   const confirmButton = useRef<HTMLButtonElement>(null);
@@ -824,6 +888,10 @@ function InboxRow({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setRenaming(true)}>
+                  <Pencil />
+                  Rename…
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setConfirming(true)}>
                   <Trash2 />
                   Delete…
@@ -834,6 +902,14 @@ function InboxRow({
         )}
       </div>
       {custom && <CustomSnooze onSnooze={snooze} onClose={() => setCustom(false)} />}
+      {renaming && (
+        <RenameDialog
+          agentId={entry.agentId}
+          threadId={entry.threadId}
+          title={title}
+          onClose={() => setRenaming(false)}
+        />
+      )}
     </div>
   );
 }

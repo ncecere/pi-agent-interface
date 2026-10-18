@@ -62,6 +62,34 @@ export function useDeleteThread() {
   });
 }
 
+/** Renames a conversation; the list shows the new name at once. */
+export function useRenameThread() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      agentId,
+      threadId,
+      title,
+    }: {
+      agentId: string;
+      threadId: string;
+      title: string;
+    }) => api.patch(threadPath(agentId, threadId), { title }),
+    onMutate: async ({ agentId, threadId, title }) => {
+      await queryClient.cancelQueries({ queryKey: threadsKey(agentId) });
+      const before = queryClient.getQueryData<AgentThread[]>(threadsKey(agentId));
+      queryClient.setQueryData<AgentThread[]>(threadsKey(agentId), (threads) =>
+        threads?.map((thread) => (thread.threadId === threadId ? { ...thread, title } : thread)),
+      );
+      return { before };
+    },
+    onError: (_error, { agentId }, context) =>
+      queryClient.setQueryData(threadsKey(agentId), context?.before),
+    onSettled: (_data, _error, { agentId }) =>
+      queryClient.invalidateQueries({ queryKey: threadsKey(agentId) }),
+  });
+}
+
 /**
  * Puts a just-started conversation at the top of its agent's list straight
  * away, before the platform lists it (the title is the agent's own: the

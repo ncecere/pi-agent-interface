@@ -47,6 +47,8 @@ const THREAD_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_BODY_BYTES = 256 * 1024;
 /** Open conversation streams one person may have at once; each keeps an agent awake. */
 export const MAX_STREAMS_PER_USER = 8;
+/** The platform's limit on a conversation's title. */
+const MAX_TITLE_CHARS = 200;
 /** Event streams one person may hold: one per open tab. */
 export const MAX_EVENT_STREAMS_PER_USER = 6;
 /** A comment on the event stream this often keeps proxies from closing it as idle. */
@@ -910,6 +912,19 @@ export function createApp(
   app.delete('/api/agents/:agentId/threads/:threadId', (c) =>
     relay(c, threadPath(c), { method: 'DELETE' }),
   );
+  /** Renames a conversation: a title of 1-200 characters, on one line. */
+  app.patch('/api/agents/:agentId/threads/:threadId', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { title?: unknown } | null;
+    const title = typeof body?.title === 'string' ? body.title.replace(/\s+/g, ' ').trim() : '';
+    if (!title || title.length > MAX_TITLE_CHARS)
+      return fail(
+        c,
+        400,
+        'invalid_title',
+        `A conversation's name is 1 to ${MAX_TITLE_CHARS} characters.`,
+      );
+    return relay(c, threadPath(c), { method: 'PATCH', body: JSON.stringify({ title }) });
+  });
   app.post('/api/agents/:agentId/threads/:threadId/messages', async (c) => {
     const body = await readBody(c);
     if (body instanceof Response) return body;

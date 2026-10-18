@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Rename conversations**: Rename… in a conversation's menu (or right-click). The new name shows at once and on
+  every device.
 - **The inbox follows the platform live.** One event stream per signed-in person (`GET /api/events`, a single shared
   connection to the platform's `/v1/agents/events`, filtered to each person's own agents) updates conversation lists
   as they change on any device, and the platform's own status (busy, last reply, last error) drives Working, Done and

@@ -194,11 +194,13 @@ describe('agent ownership', () => {
       ['POST', `/api/agents/${BOB_AGENT}/threads/t1/messages`],
       ['POST', `/api/agents/${BOB_AGENT}/threads/t1/stop`],
       ['DELETE', `/api/agents/${BOB_AGENT}/threads/t1`],
+      ['PATCH', `/api/agents/${BOB_AGENT}/threads/t1`],
     ] as const) {
       const response = await app.request(path, {
         method,
         headers: { Cookie: cookie, 'X-CSRF-Token': csrf, Origin: 'http://localhost:5177' },
-        body: method === 'POST' ? '{"text":"hi"}' : undefined,
+        body:
+          method === 'POST' ? '{"text":"hi"}' : method === 'PATCH' ? '{"title":"x"}' : undefined,
       });
       expect(response.status, `${method} ${path}`).toBe(404);
     }
@@ -223,6 +225,38 @@ describe('agent ownership', () => {
     expect(ownsAgent(tim, { externalKey: `u:${tim.id}:coder` })).toBe(true);
     expect(ownsAgent(tim, { externalKey: `u:${tim.id}x` })).toBe(false);
     expect(ownsAgent(tim, { externalKey: null })).toBe(false);
+  });
+});
+
+describe('renaming a conversation', () => {
+  const rename = (cookie: string, csrf: string, body: string) =>
+    app.request(`/api/agents/${TIM_AGENT}/threads/t1`, {
+      method: 'PATCH',
+      headers: {
+        Cookie: cookie,
+        'X-CSRF-Token': csrf,
+        Origin: 'http://localhost:5177',
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+
+  it('passes a tidied title to the platform', async () => {
+    const { cookie, csrf } = await signIn('tim');
+    expect((await rename(cookie, csrf, '{"title":"  Trip\\n plans  "}')).status).toBe(200);
+    expect(platform.relayed).toEqual([`PATCH /v1/agents/${TIM_AGENT}/threads/t1`]);
+  });
+
+  it('refuses an empty or too long title, and relays nothing', async () => {
+    const { cookie, csrf } = await signIn('tim');
+    for (const body of [
+      '{"title":"   "}',
+      '{}',
+      'nope',
+      JSON.stringify({ title: 'x'.repeat(201) }),
+    ])
+      expect((await rename(cookie, csrf, body)).status, body).toBe(400);
+    expect(platform.relayed).toEqual([]);
   });
 });
 
