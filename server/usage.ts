@@ -136,3 +136,38 @@ export function lastDays(days: number, now = new Date()): { from: string; to: st
     .slice(0, 10);
   return { from, to };
 }
+
+/** Totals of some rows. */
+export function sumUsage(rows: readonly UsageTotals[]): UsageTotals {
+  const total = zero();
+  for (const row of rows) add(total, row);
+  return total;
+}
+
+export interface AgentUsage extends UsageTotals {
+  agentId: string;
+  name: string;
+}
+
+/** One person's agents: their rows summed per agent, named as the person knows them, most used first. */
+export function usageByAgent(
+  rows: readonly PlatformUsageRow[],
+  nameOf: (agentId: string) => string,
+): AgentUsage[] {
+  const byAgent = new Map<string, AgentUsage>();
+  for (const row of rows) {
+    if (!row.agentId) continue;
+    const entry = byAgent.get(row.agentId) ?? {
+      agentId: row.agentId,
+      name: nameOf(row.agentId),
+      ...zero(),
+    };
+    add(entry, row);
+    byAgent.set(row.agentId, entry);
+  }
+  return [...byAgent.values()].sort(
+    (a, b) =>
+      b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens) ||
+      a.name.localeCompare(b.name),
+  );
+}

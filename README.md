@@ -100,7 +100,7 @@ pnpm gen:api                 # platform types from ../golang/pi-durable-platform
 |---|---|---|---|
 | **Deployment** | Environment variables (above) | Whoever runs the server; a restart applies it | Platform URL and key, sign-in, `AGENT_MODEL` as a fallback |
 | **Instance settings** | The app's database; Admin → Agents, Branding | Administrators, at once, in the audit log | Default model, provided agents, the name and logo |
-| **Optional features** | The app's database; Admin → Features | Administrators, at once, in the audit log | `usage`: usage per person in Admin |
+| **Optional features** | The app's database; Admin → Features | Administrators, at once, in the audit log | `usage` (Admin → Usage), `myUsage` (Settings → Usage) |
 | **Personal preferences** | The person's account; Settings | Each person, for themselves, on every device | Theme, avatar style, the inbox (pinned, snoozed, read) |
 
 **Optional features** are whole parts of the app an instance may do without. Each is declared once in
@@ -115,6 +115,7 @@ Features today:
 | Feature | Default | What it does |
 |---|---|---|
 | `usage` | on | Admin → Usage: requests, tokens and an estimated cost per person for the last 7, 30 or 90 days, from the platform's usage report (`GET /v1/teams/{team}/usage`). Agents that name no person here are summed as "Other agents". Cost appears once the platform has prices for the models. |
+| `myUsage` | off | Settings → Usage: each person sees their own agents' requests, tokens and estimated cost, per agent and per day (`GET /api/me/usage`). Nobody sees anyone else's. |
 
 ## How it works
 

@@ -127,8 +127,8 @@ function fakePlatform() {
       return agents[agent.id]!;
     },
     usageCalls: [] as string[],
-    async usage(groupBy: 'agent' | 'day', from: string, to: string) {
-      platform.usageCalls.push(`${groupBy} ${from}..${to}`);
+    async usage(groupBy: 'agent' | 'day', from: string, to: string, agentId?: string) {
+      platform.usageCalls.push(`${groupBy} ${from}..${to}${agentId ? ` ${agentId}` : ''}`);
       if (groupBy === 'day')
         return [
           {
@@ -274,7 +274,7 @@ describe('optional features and usage', () => {
   it('tells everyone which features are on', async () => {
     const { cookie } = await signIn('bob');
     const me = await (await app.request('/api/me', { headers: { Cookie: cookie } })).json();
-    expect(me.data.features).toEqual({ usage: true });
+    expect(me.data.features).toEqual({ usage: true, myUsage: false });
   });
 
   it('shows administrators usage per person, and nobody else', async () => {
@@ -320,6 +320,33 @@ describe('optional features and usage', () => {
     expect(
       audit.data.some((entry: { action: string }) => entry.action === 'settings.features'),
     ).toBe(true);
+  });
+
+  it('shows people their own usage only once an administrator turns it on, and only theirs', async () => {
+    const bob = await signIn('bob');
+    expect((await app.request('/api/me/usage', { headers: { Cookie: bob.cookie } })).status).toBe(
+      404,
+    );
+    const tim = await admin();
+    await app.request('/api/admin/settings/features', {
+      method: 'PUT',
+      headers: {
+        Cookie: tim.cookie,
+        'X-CSRF-Token': tim.csrf,
+        Origin: 'http://localhost:5177',
+        'Content-Type': 'application/json',
+      },
+      body: '{"myUsage":true}',
+    });
+    const response = await app.request('/api/me/usage?days=7', { headers: { Cookie: bob.cookie } });
+    expect(response.status).toBe(200);
+    const body = (await response.json()).data;
+    expect(body.agents).toEqual([
+      expect.objectContaining({ agentId: BOB_AGENT, name: 'Assistant', requests: 1 }),
+    ]);
+    expect(body.total.requests).toBe(1); // not Tim's
+    expect(platform.usageCalls).toContain(`day ${body.from}..${body.to} ${BOB_AGENT}`);
+    expect(platform.usageCalls.some((call) => call.includes(TIM_AGENT))).toBe(false);
   });
 
   it('keeps a feature the deployment disables off, whatever administrators choose', async () => {

@@ -19,7 +19,7 @@ export type ChatViewMessage = Schemas['ChatMessage'];
 export type Role = 'admin' | 'user';
 
 /** Optional features (server/features.ts) and whether each is on. */
-export type FeatureId = 'usage';
+export type FeatureId = 'usage' | 'myUsage';
 
 export interface Me {
   user: { id: string; name: string; email: string; role: Role };

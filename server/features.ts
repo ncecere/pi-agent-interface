@@ -28,6 +28,12 @@ export const FEATURES = {
       "Administrators see how much each person's agents use their models: requests, tokens and an estimated cost, from the platform's usage reports.",
     default: true,
   },
+  myUsage: {
+    label: 'Personal usage',
+    description:
+      'Everyone sees how much their own agents use their models, in Settings → Usage: requests, tokens and an estimated cost, per agent and per day. Nobody sees anyone else’s.',
+    default: false,
+  },
 } as const satisfies Record<string, { label: string; description: string; default: boolean }>;
 
 export type FeatureId = keyof typeof FEATURES;

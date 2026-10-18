@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Personal usage** (an optional feature, off by default): Settings → Usage shows each person their own agents'
+  requests, tokens and estimated cost, per agent and per day, named as they know them.
 - **Optional features** (Admin → Features): parts of the app an instance can do without, declared in
   `server/features.ts`, enforced by the server, hidden in the browser when off, and lockable off with
   `DISABLED_FEATURES`. The README now says where each kind of setting lives.

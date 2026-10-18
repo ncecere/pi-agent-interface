@@ -1,7 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { parseFeatureChange, resolveFeatures } from '../../server/features.ts';
-import { lastDays, personOfKey, usageByDay, usageByPerson } from '../../server/usage.ts';
+import {
+  lastDays,
+  personOfKey,
+  sumUsage,
+  usageByAgent,
+  usageByDay,
+  usageByPerson,
+} from '../../server/usage.ts';
 
 const row = (agentId: string | null, requests: number, tokens = 100, day?: string) => ({
   agentId,
@@ -15,10 +22,13 @@ const row = (agentId: string | null, requests: number, tokens = 100, day?: strin
 
 describe('features', () => {
   it('uses the default until an administrator chooses, and the environment can lock one off', () => {
-    expect(resolveFeatures(null)).toEqual({ usage: true });
-    expect(resolveFeatures({ usage: false })).toEqual({ usage: false });
-    expect(resolveFeatures({ usage: true }, ['usage'])).toEqual({ usage: false });
-    expect(resolveFeatures({ usage: 'yes' })).toEqual({ usage: true }); // not a boolean: the default
+    expect(resolveFeatures(null)).toEqual({ usage: true, myUsage: false });
+    expect(resolveFeatures({ usage: false, myUsage: true })).toEqual({
+      usage: false,
+      myUsage: true,
+    });
+    expect(resolveFeatures({ usage: true }, ['usage'])).toMatchObject({ usage: false });
+    expect(resolveFeatures({ usage: 'yes' })).toMatchObject({ usage: true }); // not a boolean: the default
   });
 
   it('accepts known features as booleans, and refuses turning a locked one on', () => {
@@ -86,5 +96,19 @@ describe('usage', () => {
       from: '2026-10-12',
       to: '2026-10-18',
     });
+  });
+});
+
+describe('usage by agent', () => {
+  it('sums each agent, names it as the person knows it, most used first', () => {
+    const out = usageByAgent(
+      [row('a', 1, 10), row('b', 1, 500), row('a', 2, 10), row(null, 9)],
+      (id) => `Agent ${id}`,
+    );
+    expect(out.map((agent) => [agent.name, agent.requests])).toEqual([
+      ['Agent b', 1],
+      ['Agent a', 3],
+    ]);
+    expect(sumUsage(out).requests).toBe(4);
   });
 });

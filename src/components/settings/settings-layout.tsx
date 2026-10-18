@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { ArrowLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { FeatureId } from '~/api/client';
 import { SkipLink } from '~/components/layout/skip-link';
 import { ThemeMenu } from '~/components/layout/theme-menu';
 import { Button } from '~/components/ui/button';
@@ -18,14 +19,28 @@ import { useTheme } from '~/providers/theme-provider';
 
 /** Settings, as Open Chat Interface lays them out: who you are and help on the left, the section on the right. */
 
-const TABS = [
+interface Tab {
+  to:
+    | '/settings'
+    | '/settings/customization'
+    | '/settings/agents'
+    | '/settings/conversations'
+    | '/settings/usage';
+  label: string;
+  exact: boolean;
+  /** Shown only while this optional feature is on. */
+  feature?: FeatureId;
+}
+
+const ALL_TABS: Tab[] = [
   { to: '/settings', label: 'Account', exact: true },
   { to: '/settings/customization', label: 'Customization', exact: false },
   { to: '/settings/agents', label: 'My agents', exact: false },
   { to: '/settings/conversations', label: 'Conversations', exact: false },
-] as const;
+  { to: '/settings/usage', label: 'Usage', exact: false, feature: 'myUsage' },
+];
 
-const isActive = (tab: (typeof TABS)[number], pathname: string) =>
+const isActive = (tab: Tab, pathname: string) =>
   tab.exact ? pathname === tab.to || pathname === `${tab.to}/` : pathname.startsWith(tab.to);
 
 export function initialsOf(name: string): string {
@@ -128,7 +143,9 @@ function ShortcutsCard() {
 
 function SectionNav({ pathname }: { pathname: string }) {
   const navigate = useNavigate();
-  const current = TABS.find((tab) => isActive(tab, pathname)) ?? TABS[0];
+  const features = useCurrentUser()?.features ?? {};
+  const TABS = ALL_TABS.filter((tab) => !tab.feature || features[tab.feature]);
+  const current = TABS.find((tab) => isActive(tab, pathname)) ?? ALL_TABS[0]!;
   return (
     <nav aria-label="Settings sections">
       <div className="hidden flex-nowrap gap-1 rounded-xl bg-[var(--bg-segment-track)] p-1 sm:inline-flex">

@@ -23,7 +23,7 @@ import {
   parseFeatureChange,
   resolveFeatures,
 } from './features.ts';
-import { Platform, type PlatformAgent, PlatformError } from './platform.ts';
+import { ownsAgent, Platform, type PlatformAgent, PlatformError } from './platform.ts';
 import {
   type LoginState,
   now,
@@ -41,7 +41,7 @@ import {
   type Store,
   StoreError,
 } from './store.ts';
-import { lastDays, usageByDay, usageByPerson } from './usage.ts';
+import { lastDays, sumUsage, usageByAgent, usageByDay, usageByPerson } from './usage.ts';
 
 /** Fixed development accounts (DEV_AUTH, loopback only). */
 export const DEV_ACCOUNTS = [
@@ -605,6 +605,62 @@ export function createApp(
     const saved = ((await store.setting('features')) ?? {}) as Record<string, unknown>;
     await store.setSetting('features', { ...saved, ...parsed.value }, c.get('person').id);
     return c.json({ data: await features() });
+  });
+
+  /**
+   * The signed-in person's own usage (the `myUsage` feature): their agents
+   * only, named as they know them, with tokens per day.
+   */
+  app.get('/api/me/usage', requireSession, async (c) => {
+    if (!(await feature('myUsage'))) return fail(c, 404, 'feature_off', 'Usage is turned off.');
+    const person = c.get('person');
+    const user = c.get('session').user;
+    const days = [7, 30, 90].includes(Number(c.req.query('days')))
+      ? Number(c.req.query('days'))
+      : 30;
+    const { from, to } = lastDays(days);
+    try {
+      const [teamRows, managed, provided, mine] = await Promise.all([
+        platform.usage('agent', from, to),
+        platform.managedAgents(),
+        providedAgents(),
+        store.personalAgents(person.id),
+      ]);
+      const own = new Map(
+        [...managed.values()]
+          .filter((agent) => ownsAgent(user, agent))
+          .map((agent) => [agent.id, agent]),
+      );
+      const names = new Map<string, string>();
+      for (const spec of provided) {
+        const agent = managed.get(keys.provided(person.id, spec.id));
+        if (agent) names.set(agent.id, spec.name);
+      }
+      for (const row of mine) {
+        const agent = managed.get(keys.personal(person.id, row.slot));
+        if (agent) names.set(agent.id, row.name);
+      }
+      // Any other of theirs (a provided agent since removed): the platform's name, without "· person".
+      const nameOf = (id: string) =>
+        names.get(id) ?? own.get(id)?.name.replace(/\s+·\s+[^·]+$/, '') ?? 'Agent';
+      const rows = teamRows.filter((row) => row.agentId && own.has(row.agentId));
+      const agents = usageByAgent(rows, nameOf);
+      const dayRows = (
+        await Promise.all(agents.map((agent) => platform.usage('day', from, to, agent.agentId)))
+      ).flat();
+      return c.json({
+        data: {
+          from,
+          to,
+          days,
+          agents,
+          total: sumUsage(rows),
+          byDay: usageByDay(dayRows, from, to),
+        },
+      });
+    } catch (error) {
+      return platformFailure(c, error);
+    }
   });
 
   /** Usage per person over the last 7, 30 or 90 days (the `usage` feature). */
