@@ -21,6 +21,11 @@ export interface Config {
   agentTemplate: string;
   /** What the app calls a person's assistant. */
   agentName: string;
+  /**
+   * The model every assistant runs on, by name or id, from those published to
+   * the team. Empty: the platform decides (the agent's template, then its default).
+   */
+  agentModel: string;
   /** 32+ characters; encrypts session cookies. Changing it signs everyone out. */
   sessionSecret: string;
   sessionTtlSeconds: number;
@@ -102,6 +107,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     platformServiceKey: required('PLATFORM_SERVICE_KEY'),
     agentTemplate: env.AGENT_TEMPLATE?.trim() ?? '',
     agentName: env.AGENT_NAME?.trim() || 'Assistant',
+    agentModel: env.AGENT_MODEL?.trim() ?? '',
     sessionSecret,
     sessionTtlSeconds: Number.isFinite(ttlHours) && ttlHours > 0 ? ttlHours * 3600 : 168 * 3600,
     oidc,

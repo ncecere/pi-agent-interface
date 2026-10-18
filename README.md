@@ -27,7 +27,8 @@ tim / bob / sally ──sign in──▶ chat server (server/) ──service key
 
 1. **A pi-durable-platform** with a team (default slug `pi-agent-interface`), and in it:
    - a **service account** with role **editor**, and a key (`pdp_sa_…`) → `PLATFORM_SERVICE_KEY`;
-   - a **model published to the team**. Without one every agent answers from the platform's scripted demo model.
+   - a **model published to the team**, named in `AGENT_MODEL`. Without one every agent answers from the
+     platform's default, which out of the box is a scripted demo model.
 2. **An OpenID Connect provider** (authentik, Keycloak, Entra…): a confidential client whose redirect URI is
    `<APP_URL>/auth/callback`, with the `openid profile email` scopes → `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
    `OIDC_CLIENT_SECRET`. The provider must be reached over https.
@@ -41,6 +42,7 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `APP_URL` | Where people open the app, e.g. `https://chat.example.com`. Its origin is the only one allowed to write. |
 | `PLATFORM_URL`, `PLATFORM_TEAM`, `PLATFORM_SERVICE_KEY` | The platform, the team, and the service account key. Never sent to browsers. |
 | `AGENT_TEMPLATE`, `AGENT_NAME` | The platform template each person's assistant is made from, and what the app calls it. |
+| `AGENT_MODEL` | The model every assistant runs on, by name or id, from those published to the team. New assistants are created on it and existing ones moved to it (from their next start). Only a model currently published to the team is ever set, since an agent on an unpublished model would not start. Empty: the platform decides. |
 | `SESSION_SECRET` | 32+ characters (`openssl rand -base64 48`). Encrypts sessions; changing it signs everyone out. |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Single sign-on. All three. |
 | `DEV_AUTH` | `true` enables the development accounts tim, bob and sally. Refused unless `APP_URL` is loopback. |

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `AGENT_MODEL` chooses the model every assistant runs on, from those published to the team. New assistants are
+  created on it; existing ones are moved to it, taking effect from their next start. A model that is not
+  published (or is disabled) is never set, and a failed change is logged without keeping anyone from their
+  assistant.
+
 ## 0.1.0
 
 First release. A chat app for [Pi Durable](https://github.com/ncecere/pi-durable-platform) agents, where every

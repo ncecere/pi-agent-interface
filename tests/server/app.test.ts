@@ -19,6 +19,7 @@ const config: Config = {
   platformServiceKey: 'pdp_sa_test',
   agentTemplate: '',
   agentName: 'Assistant',
+  agentModel: '',
   sessionSecret: 'x'.repeat(40),
   sessionTtlSeconds: 3600,
   oidc: null,
