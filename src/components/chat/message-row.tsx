@@ -1,0 +1,295 @@
+import { isToolPart } from '@oci/shared';
+import type { UIMessage } from 'ai';
+import { type Dispatch, memo, type SetStateAction, useLayoutEffect, useRef } from 'react';
+import { showsArtifactCard } from '~/components/artifacts/artifact-tool-step';
+import { useArtifacts } from '~/components/artifacts/artifacts-context';
+import { shownReply } from '~/components/artifacts/declined-artifacts';
+import { ReplyMarkdown } from '~/components/artifacts/reply-content';
+import { CapacityNote, CapacityWait, capacityWaitOf } from '~/components/chat/capacity-wait';
+import { MARKDOWN_PROSE, Markdown } from '~/components/chat/markdown';
+import { MessageActions } from '~/components/chat/message-actions';
+import { attachmentsOf, MessageAttachments } from '~/components/chat/message-attachments';
+import {
+  contextLimitedOf,
+  failureOf,
+  interruptionOf,
+  metadataOf,
+  replyLayoutOf,
+  stoppedNoteOf,
+  stoppedOf,
+  textOf,
+  type WorkEntry,
+} from '~/components/chat/message-content';
+import { type EditMessage, MessageEditor } from '~/components/chat/message-editor';
+import { ProjectSearchNote } from '~/components/chat/project-search-note';
+import { ReplyFailureNote } from '~/components/chat/reply-outcome-note';
+import { type ReplySwitch, ReplySwitcher } from '~/components/chat/reply-switcher';
+import { WorkBlock } from '~/components/chat/reply-work';
+import { replySearchOf, searchGroundingOf } from '~/components/chat/search-grounding';
+import {
+  type AnswerApproval,
+  ReplyResults,
+  type ToolPart,
+  toolPlaceOf,
+} from '~/components/chat/tool-steps';
+import { returnFocusIfLost } from '~/lib/focus-return';
+import { messageExcerpt } from '~/lib/message-excerpt';
+import { cn } from '~/lib/utils';
+
+interface MessageRowProps {
+  message: UIMessage;
+  /** The saved conversation; finished replies then offer "Export as…". */
+  threadId?: string;
+  streaming: boolean;
+  editing: boolean;
+  onEditingChange: Dispatch<SetStateAction<string | null>>;
+  onRetry?: () => void;
+  onEdit?: EditMessage;
+  onFork?: (messageId: string) => Promise<void>;
+  replySwitch?: ReplySwitch;
+  /** Answers this reply's open approvals; only the latest reply can be answered. */
+  onAnswerApproval?: AnswerApproval;
+  /** Stops the latest reply; offered while it waits for its model. */
+  onStop?: () => void;
+  /** Its place, when another message opens with the same words: "reply 3" (#293). */
+  position?: string | null;
+}
+
+/**
+ * A message's opening words, as its row names it. Cached by message: the SDK
+ * keeps a finished message's object, so the list can work out which openings
+ * repeat (#293) without reading every message again on each streamed token.
+ */
+const excerpts = new WeakMap<UIMessage, string | null>();
+export function messageExcerptOf(message: UIMessage): string | null {
+  let excerpt = excerpts.get(message);
+  if (excerpt === undefined) {
+    excerpt = messageExcerpt(textOf(shownReply(message)));
+    excerpts.set(message, excerpt);
+  }
+  return excerpt;
+}
+
+/**
+ * The SDK replaces the active message and preserves historical object identity.
+ * Shallow comparison skips both content extraction and Markdown for those rows.
+ * Do not compare only IDs/text or ignore callbacks: metadata, sources, files,
+ * permissions and action closures can all change independently of the text.
+ */
+export const MessageRow = memo(function MessageRow({
+  message: stored,
+  threadId,
+  streaming,
+  editing,
+  onEditingChange,
+  onRetry,
+  onEdit,
+  onFork,
+  replySwitch,
+  onAnswerApproval,
+  onStop,
+  position,
+}: MessageRowProps) {
+  // Without artifact attempts declined as reply content (#201).
+  const message = shownReply(stored);
+  const text = textOf(message);
+  // The message's opening words, which its code blocks' and tables' names
+  // also carry, as its own controls' do (#271), with its place when another
+  // message opens alike (#293).
+  const excerpt = messageExcerptOf(stored) ?? undefined;
+  const place = (excerpt && position) || undefined;
+
+  // Closing the editor (Cancel, Escape, Save) removes the control that had
+  // focus; it goes back to this message's Edit button rather than the page
+  // (#333). Not on first render, and not if focus has moved on.
+  const article = useRef<HTMLElement>(null);
+  const wasEditing = useRef(editing);
+  useLayoutEffect(() => {
+    const closed = wasEditing.current && !editing;
+    wasEditing.current = editing;
+    if (closed) {
+      returnFocusIfLost(article.current?.querySelector<HTMLElement>('[data-message-edit]'));
+    }
+  }, [editing]);
+
+  if (message.role === 'user') {
+    return (
+      <article
+        ref={article}
+        className="group flex flex-col items-end"
+        aria-label="Your message"
+        data-excerpt={excerpt}
+        data-position={place}
+        data-message-id={message.id}
+        data-message-role="user"
+      >
+        {editing && onEdit ? (
+          <MessageEditor
+            messageId={message.id}
+            initialText={text}
+            attachments={attachmentsOf(message)}
+            onEdit={onEdit}
+            onClose={() => onEditingChange((current) => (current === message.id ? null : current))}
+          />
+        ) : (
+          <>
+            <div className="max-w-[85%] rounded-2xl border border-[var(--border-user-message)] bg-[var(--bg-user-message)] px-4 py-3 text-[0.9375rem] leading-relaxed text-[var(--text-primary)]">
+              <Markdown math={false}>{text}</Markdown>
+              <MessageAttachments message={message} />
+            </div>
+            <MessageActions
+              text={text}
+              position={place}
+              onFork={onFork && !streaming ? () => onFork(message.id) : undefined}
+              onEdit={onEdit && !streaming ? () => onEditingChange(message.id) : undefined}
+            />
+          </>
+        )}
+      </article>
+    );
+  }
+
+  const grounding = searchGroundingOf(message);
+  const metadata = metadataOf(message);
+  const interruption = interruptionOf(message);
+  const failure = streaming ? null : failureOf(message);
+  const stopped = !streaming && stoppedOf(message);
+  const capacity = capacityWaitOf(message);
+
+  return (
+    <article
+      className="group flex flex-col"
+      aria-label="Assistant message"
+      data-excerpt={excerpt}
+      data-position={place}
+      data-message-id={message.id}
+    >
+      {contextLimitedOf(message) && (
+        <p role="note" className="mb-2 text-xs text-[var(--text-muted)]">
+          Earlier conversation context was omitted to fit the input limit.
+        </p>
+      )}
+      <ProjectSearchNote message={message} />
+      {capacity &&
+        (streaming ? (
+          capacity.state === 'waiting' && <CapacityWait wait={capacity} onStop={onStop} />
+        ) : (
+          <CapacityNote wait={capacity} />
+        ))}
+      {/* Keyed: switching replies starts each one's block collapsed. */}
+      <ReplyBody
+        key={message.id}
+        message={message}
+        text={text}
+        streaming={streaming}
+        onAnswerApproval={onAnswerApproval}
+      />
+      {interruption && (
+        <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
+          {interruption}
+        </p>
+      )}
+      {failure && <ReplyFailureNote reason={failure} onRetry={onRetry} latest={Boolean(onRetry)} />}
+      {stopped && (
+        <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
+          {stoppedNoteOf(message, text)}
+        </p>
+      )}
+      {(replySwitch || !streaming) && (
+        <div className="flex flex-wrap items-center gap-1">
+          {replySwitch && <ReplySwitcher {...replySwitch} />}
+          {!streaming && (
+            <MessageActions
+              text={text}
+              position={place}
+              onFork={
+                onFork && metadata.status !== 'streaming' ? () => onFork(message.id) : undefined
+              }
+              onRetry={onRetry}
+              exportTarget={
+                threadId && metadata.status !== 'streaming'
+                  ? { threadId, messageId: message.id }
+                  : undefined
+              }
+              modelSlug={metadata.modelSlug}
+              effort={metadata.effort}
+              searched={Boolean(grounding)}
+            />
+          )}
+        </div>
+      )}
+    </article>
+  );
+});
+
+/**
+ * A reply's work, results and text (v0.10.1): one block with everything the
+ * model did before answering, then what that work made or needs (artifact
+ * cards, approvals, memory notes), then the text in the order it was written.
+ */
+function ReplyBody({
+  message,
+  text,
+  streaming,
+  onAnswerApproval,
+}: {
+  message: UIMessage;
+  text: string;
+  streaming: boolean;
+  onAnswerApproval?: AnswerApproval;
+}) {
+  const artifacts = useArtifacts();
+  // Approvals answered in this view, so focus can follow the step they become.
+  const answeredHere = useRef(new Set<string>()).current;
+  const layout = replyLayoutOf(
+    message.parts as ToolPart[],
+    isToolPart,
+    (part) => toolPlaceOf(part, showsArtifactCard(artifacts, message.id, part, streaming)),
+    (part) => `tool-${part.toolCallId}`,
+  );
+  // The search before the reply and the links tool calls returned are steps
+  // of the same block (v0.11), so a reply has at most one disclosure above it.
+  const { presearch, sources } = replySearchOf(message);
+  const work: WorkEntry<ToolPart>[] = [
+    ...(presearch ? [{ type: 'search' as const, key: 'presearch', grounding: presearch }] : []),
+    ...layout.work,
+    ...(sources.length ? [{ type: 'sources' as const, key: 'sources', sources }] : []),
+  ];
+  return (
+    <>
+      {work.length > 0 && (
+        <WorkBlock
+          messageId={message.id}
+          layout={{ ...layout, work }}
+          streaming={streaming}
+          answeredHere={answeredHere}
+        />
+      )}
+      <ReplyResults
+        message={message}
+        parts={layout.results}
+        onAnswer={onAnswerApproval}
+        disabled={streaming}
+        streaming={streaming}
+        answeredHere={answeredHere}
+      />
+      {layout.text.map((group, index) => (
+        <div
+          key={group.key}
+          data-reply-group="text"
+          className={cn(
+            'text-[0.9375rem] leading-relaxed text-[var(--text-secondary)]',
+            index < layout.text.length - 1 && 'mb-4',
+          )}
+        >
+          <ReplyMarkdown
+            messageId={message.id}
+            text={text}
+            range={{ start: group.start, end: group.end }}
+            className={MARKDOWN_PROSE}
+          />
+        </div>
+      ))}
+    </>
+  );
+}

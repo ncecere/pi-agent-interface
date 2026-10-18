@@ -1,0 +1,240 @@
+import { useNavigate } from '@tanstack/react-router';
+import { MessageSquareText, Plus } from 'lucide-react';
+import { createElement, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { SearchResultContent } from '~/components/layout/thread-search-results';
+import {
+  SEARCH_DEBOUNCE_MS,
+  searchResultsAnnouncement,
+  searchResultTarget,
+  useThreadSearch,
+} from '~/hooks/use-thread-search';
+import { useCreateThread } from '~/hooks/use-threads';
+import { stripHighlights } from '~/lib/search-highlight';
+import type { CommandPaletteProps, PaletteGroup, PaletteItem } from './types';
+import { usePaletteActions } from './use-palette-actions';
+
+const PENDING_PROMPT_KEY = 'oci.pendingPrompt';
+const PENDING_THREAD_KEY = 'oci.pendingThreadId';
+/** Left by an earlier handover from the home page; they would apply to this one. */
+const OTHER_PENDING_KEYS = [
+  'oci.pendingAttachments',
+  'oci.pendingEffort',
+  'oci.pendingModel',
+  'oci.pendingWebSearch',
+  'oci.pendingComposerFocus',
+];
+
+function matches(item: PaletteItem, query: string) {
+  if (!query) return true;
+  return `${item.label} ${item.keywords ?? ''}`.toLocaleLowerCase().includes(query);
+}
+
+export function useCommandPaletteState({
+  open,
+  onOpenChange,
+  sidebarOpen,
+  onSidebarOpenChange,
+}: CommandPaletteProps) {
+  const navigate = useNavigate();
+  const createThread = useCreateThread();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const keepFocusOnClose = useRef(false);
+  /** One conversation per choice, however often Enter arrives before the palette closes. */
+  const startingChat = useRef(false);
+
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const normalizedDebouncedQuery = debouncedQuery.trim();
+  const searchIsSettled = query.trim() === normalizedDebouncedQuery;
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      setDebouncedQuery('');
+      setSelectedIndex(0);
+    }
+  }, [open]);
+
+  // Titles and message text, best match first; a result opens at its match.
+  const {
+    data: threads = [],
+    isFetching: isSearchingThreads,
+    isError: threadSearchFailed,
+    isPlaceholderData: threadsAreStale,
+  } = useThreadSearch(normalizedDebouncedQuery);
+
+  const actionGroups = usePaletteActions({ sidebarOpen, onSidebarOpenChange });
+
+  const groups = useMemo<PaletteGroup[]>(() => {
+    const nextGroups: PaletteGroup[] = [];
+
+    // Results for an earlier query are never offered, so Enter cannot open a stale match.
+    if (normalizedQuery && searchIsSettled && !threadsAreStale && threads.length > 0) {
+      nextGroups.push({
+        id: 'threads',
+        label: 'Conversations',
+        items: threads.map((result) => ({
+          id: `thread-${result.thread.id}`,
+          label: stripHighlights(result.titleHighlight) || result.thread.title,
+          keywords: 'thread conversation',
+          icon: MessageSquareText,
+          content: createElement(SearchResultContent, { result }),
+          keepFocusOnClose: result.matches.length > 0,
+          onSelect: () => navigate(searchResultTarget(result)),
+        })),
+      });
+    }
+
+    for (const group of actionGroups) {
+      const items = group.items.filter((item) => matches(item, normalizedQuery));
+      if (items.length > 0) nextGroups.push({ ...group, items });
+    }
+
+    if (query.trim()) {
+      const prompt = query.trim();
+      nextGroups.push({
+        id: 'query-action',
+        label: 'Actions',
+        items: [
+          {
+            id: 'new-chat-with-query',
+            label: `New chat with query: “${prompt}”`,
+            keywords: prompt,
+            icon: Plus,
+            onSelect: async () => {
+              // isPending is only as fresh as the last render; the ref is not.
+              if (startingChat.current || createThread.isPending) return;
+              startingChat.current = true;
+              try {
+                const { thread } = await createThread.mutateAsync(undefined);
+                // The conversation sends the prompt only when it is addressed to it
+                // (v0.10.2; before, the prompt stayed unsent in an empty "New Chat").
+                sessionStorage.removeItem(PENDING_THREAD_KEY);
+                for (const key of OTHER_PENDING_KEYS) sessionStorage.removeItem(key);
+                sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+                sessionStorage.setItem(PENDING_THREAD_KEY, thread.id);
+                await navigate({ to: '/chat/$threadId', params: { threadId: thread.id } });
+              } finally {
+                startingChat.current = false;
+              }
+            },
+          },
+        ],
+      });
+    }
+
+    return nextGroups;
+  }, [
+    actionGroups,
+    createThread,
+    navigate,
+    normalizedQuery,
+    query,
+    searchIsSettled,
+    threads,
+    threadsAreStale,
+  ]);
+
+  const items = groups.flatMap((group) => group.items);
+  const itemIds = items.map((item) => item.id).join('|');
+  const safeSelectedIndex = items.length > 0 ? Math.min(selectedIndex, items.length - 1) : -1;
+  const selectedItem = safeSelectedIndex >= 0 ? items[safeSelectedIndex] : undefined;
+  const selectedItemId = selectedItem?.id;
+
+  useEffect(() => {
+    if (!open || !selectedItemId) return;
+    document
+      .getElementById(`oci-command-palette-option-${selectedItemId}`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [open, selectedItemId]);
+
+  // Reset to the first best match whenever the result set changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: itemIds intentionally tracks result identity
+  useEffect(() => setSelectedIndex(0), [query, itemIds]);
+
+  async function selectItem(item: PaletteItem | undefined) {
+    if (!item) return;
+
+    try {
+      await item.onSelect();
+      // The conversation moves focus to the matched message; restoring focus
+      // to whatever opened the palette would take it straight back.
+      keepFocusOnClose.current = Boolean(item.keepFocusOnClose);
+      onOpenChange(false);
+    } catch {
+      // Mutation hooks retain the request error; keep the palette open for retry.
+    }
+  }
+
+  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSelectedIndex((current) => (items.length > 0 ? (current + 1) % items.length : 0));
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setSelectedIndex((current) =>
+        items.length > 0 ? (current - 1 + items.length) % items.length : 0,
+      );
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      setSelectedIndex(0);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      setSelectedIndex(Math.max(0, items.length - 1));
+      return;
+    }
+
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void selectItem(selectedItem);
+    }
+  }
+
+  const showThreadProgress = normalizedQuery.length > 0 && (!searchIsSettled || isSearchingThreads);
+  const threadAnnouncement = !normalizedQuery
+    ? ''
+    : threadSearchFailed
+      ? 'Conversation search failed.'
+      : showThreadProgress
+        ? ''
+        : searchResultsAnnouncement(threads.length);
+
+  /** Read once by the dialog's close handler, then reset. */
+  function consumeKeepFocus() {
+    const keep = keepFocusOnClose.current;
+    keepFocusOnClose.current = false;
+    return keep;
+  }
+
+  return {
+    inputRef,
+    query,
+    setQuery,
+    selectedItem,
+    groups,
+    items,
+    safeSelectedIndex,
+    setSelectedIndex,
+    selectItem,
+    handleInputKeyDown,
+    showThreadProgress,
+    threadAnnouncement,
+    consumeKeepFocus,
+  };
+}
