@@ -92,6 +92,12 @@ export function useChatScroll(
   streaming: boolean,
   target?: ChatScrollTarget,
   targetLoaded = true,
+  /**
+   * Whether the scroller is on screen. A page that shows a spinner first
+   * mounts it later than this hook: the observers attach when it arrives, and
+   * the conversation then opens at its end.
+   */
+  mounted = true,
 ) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -181,7 +187,9 @@ export function useChatScroll(
   // Decide what each change to the transcript means before the browser paints.
   useLayoutEffect(() => {
     const count = userMessageCount(messages);
-    if (userCount.current === null) {
+    // Nothing yet (or still loading): the first transcript to arrive is the
+    // conversation being opened, not a question being sent.
+    if (userCount.current === null || userCount.current === 0) {
       // Arriving mid-reply (a conversation started from the home page): the
       // question was just sent, so treat it like any other send.
       if (streaming && count > 0) pinnedIndex.current = count - 1;
@@ -249,6 +257,7 @@ export function useChatScroll(
   }, [targetId, targetKey, targetLoaded, findMessage, measure, centre]);
 
   // The reader taking over ends the hold on a search match at once.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `mounted` re-attaches to a scroller that arrived after a spinner
   useEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
@@ -264,9 +273,10 @@ export function useChatScroll(
         scroller.removeEventListener(type, release);
       }
     };
-  }, []);
+  }, [mounted]);
 
   // Content and window size change during streaming, images and edits.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `mounted` re-attaches to a scroller that arrived after a spinner
   useEffect(() => {
     const scroller = scrollRef.current;
     const content = contentRef.current;
@@ -275,7 +285,7 @@ export function useChatScroll(
     observer.observe(content);
     observer.observe(scroller);
     return () => observer.disconnect();
-  }, [settle]);
+  }, [settle, mounted]);
 
   /**
    * Only the reader moving up stops following; reaching the bottom resumes it.

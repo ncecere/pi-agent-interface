@@ -74,7 +74,7 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
     return null;
   }, [busy, messages]);
 
-  const scroll = useChatScroll(messages, working);
+  const scroll = useChatScroll(messages, working, undefined, true, shown);
 
   // "Send again": the question the latest reply answered.
   const { setDraft } = session;

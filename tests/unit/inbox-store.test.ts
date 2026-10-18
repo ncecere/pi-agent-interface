@@ -145,7 +145,8 @@ describe('inboxActionsFor', () => {
     expect(before?.pinnedAt).toBeDefined();
     expect(store.get('a/1')?.settledAt).toBeDefined();
     actions.restore('a/1', before);
-    expect(store.get('a/1')).toEqual(before);
+    // Everything but the change stamp, which is the time of the restore.
+    expect({ ...store.get('a/1'), _at: 0 }).toEqual({ ...before, _at: 0 });
   });
 
   it('does not save a visit again and again while a conversation streams', () => {
