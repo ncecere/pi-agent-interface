@@ -101,6 +101,10 @@ NetworkPolicies); see [its README](deploy/kubernetes/README.md) for what an over
 
 **Without Docker:** `pnpm install && pnpm build && pnpm start`.
 
+## Status and roadmap
+
+Pi Agent Interface is in use and versioned (see the [changelog](CHANGELOG.md)); expect minor releases to add things and to change settings only with a note. What is not built yet, and the plan for it, is in the [roadmap](ROADMAP.md), with an issue for each item.
+
 ## Development
 
 ```sh
