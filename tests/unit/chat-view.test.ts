@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatView } from '~/api/client';
+import { reconcile } from '~/hooks/use-agent-thread';
 import {
   type PendingMessage,
   reuseUnchanged,
@@ -31,7 +32,7 @@ describe('viewToMessages', () => {
     const messages = viewToMessages(transcript);
     expect(messages.map((message) => [message.id, message.role])).toEqual([
       ['e1', 'user'],
-      ['reply-e1', 'assistant'],
+      ['reply-0', 'assistant'],
     ]);
     const reply = messages[1]!;
     expect(reply.parts.map((part) => part.type)).toEqual([
@@ -89,7 +90,7 @@ describe('viewToMessages', () => {
       partial: { text: '', thinking: '' },
     });
     const reply = messages[1]!;
-    expect(reply.id).toBe('reply-e1');
+    expect(reply.id).toBe('reply-0');
     expect(reply.metadata).toEqual({ status: 'streaming' });
     const tool = reply.parts[0] as Record<string, unknown>;
     expect(tool.state).toBe('input-available');
@@ -161,5 +162,75 @@ describe('parseEvent', () => {
     expect(parseEvent('event: view\ndata: {"a":1}')).toEqual({ event: 'view', data: '{"a":1}' });
     expect(parseEvent('data: one\ndata: two')).toEqual({ event: 'message', data: 'one\ntwo' });
     expect(parseEvent(': keep-alive')).toBeNull();
+  });
+});
+
+describe('reconcile and stable identity', () => {
+  const sent = (requestId: string, text: string, baseline = 0): PendingMessage => ({
+    requestId,
+    text,
+    state: 'queued',
+    baseline,
+  });
+
+  it('keeps a message’s id as it moves from sent-here to in-the-transcript, so it does not re-mount', () => {
+    const queued = [sent('r1', 'List the files')];
+    const before = viewToMessages({ busy: true, tools: [], messages: [] }, queued);
+    expect(before.map((message) => message.id)).toEqual(['reply-start', 'pending-r1']);
+
+    const confirmed = reconcile(queued, { ...transcript, busy: false });
+    expect(confirmed[0]).toMatchObject({ state: 'confirmed', matchedId: 'e1' });
+    const after = viewToMessages(transcript, confirmed);
+    expect(after.map((message) => message.id)).toEqual(['pending-r1', 'reply-0']);
+    // Not shown twice, and no longer marked as waiting.
+    expect(after[0]!.metadata).toBeUndefined();
+  });
+
+  it('gives the reply the same id before and after its question is in the transcript', () => {
+    const queued = [sent('r1', 'hi')];
+    const early = viewToMessages(
+      {
+        busy: true,
+        tools: [],
+        messages: [{ id: 'e1', role: 'user', text: 'hi' }],
+        partial: { text: 'He', thinking: '' },
+      },
+      reconcile(queued, {
+        busy: true,
+        tools: [],
+        messages: [{ id: 'e1', role: 'user', text: 'hi' }],
+      }),
+    );
+    expect(early.map((message) => message.id)).toEqual(['pending-r1', 'reply-0']);
+  });
+
+  it('tells the same words sent twice apart, oldest first', () => {
+    const view: ChatView = {
+      busy: false,
+      tools: [],
+      messages: [
+        { id: 'e1', role: 'user', text: 'again' },
+        { id: 'e2', role: 'assistant', text: 'ok' },
+        { id: 'e3', role: 'user', text: 'again' },
+      ],
+    };
+    const result = reconcile([sent('a', 'again'), sent('b', 'again')], view);
+    expect(result.map((message) => [message.requestId, message.state, message.matchedId])).toEqual([
+      ['a', 'confirmed', 'e1'],
+      ['b', 'confirmed', 'e3'],
+    ]);
+    // Only the first has arrived: the second still waits.
+    const half = reconcile([sent('a', 'again'), sent('b', 'again')], {
+      ...view,
+      messages: view.messages.slice(0, 2),
+    });
+    expect(half.map((message) => message.state)).toEqual(['confirmed', 'queued']);
+  });
+
+  it('leaves the array alone when nothing matched, and failed messages unmatched', () => {
+    const waiting = [sent('a', 'nothing like it')];
+    expect(reconcile(waiting, transcript)).toBe(waiting);
+    const failed: PendingMessage[] = [{ ...sent('f', 'List the files'), state: 'failed' }];
+    expect(reconcile(failed, transcript)).toBe(failed);
   });
 });

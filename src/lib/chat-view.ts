@@ -23,12 +23,20 @@ export interface PendingMessage {
   /**
    * `sending`: the request is in flight. `queued`: accepted, waiting for the
    * agent to take it (after the reply it is working on). `failed`: refused or
-   * unreachable; the text is back in the composer.
+   * unreachable; the text is back in the composer. `confirmed`: the transcript
+   * has it; the entry stays so the message keeps the same identity (and DOM
+   * row) as it moves from "sent from this tab" to "in the transcript".
    */
-  state: 'sending' | 'queued' | 'failed';
+  state: 'sending' | 'queued' | 'failed' | 'confirmed';
   /** User messages with this text in the transcript when it was sent. */
   baseline: number;
+  /** The transcript's id for it, once `confirmed`. */
+  matchedId?: string;
 }
+
+/** The id a message sent from this tab keeps for its whole life on screen. */
+export const pendingIdOf = (message: Pick<PendingMessage, 'requestId'>) =>
+  `pending-${message.requestId}`;
 
 /** Metadata on a reply, read by the renderers through metadataOf(). */
 export interface ReplyMetadata {
@@ -36,14 +44,22 @@ export interface ReplyMetadata {
   status?: 'cancelled' | 'error' | 'streaming';
   errorMessage?: string;
   /** For a user message from this tab: where it is. */
-  pending?: PendingMessage['state'];
+  pending?: Exclude<PendingMessage['state'], 'failed' | 'confirmed'>;
 }
 
 export type AgentUIMessage = UIMessage<ReplyMetadata>;
 type Part = AgentUIMessage['parts'][number];
 
-/** The id of the reply to a user message: stable from the first token to the last. */
-const replyIdFor = (userId: string | null) => `reply-${userId ?? 'start'}`;
+/**
+ * The id of the reply to the n-th user message (from 0): stable from the first
+ * token to the last, and whatever id the question has (a message sent from
+ * this tab is renamed by the transcript when it arrives).
+ */
+const replyIdFor = (turn: number) => (turn < 0 ? 'reply-start' : `reply-${turn}`);
+
+/** Whether a message is one sent from this tab and not in the transcript yet. */
+export const isPendingMessage = (message: { metadata?: unknown }) =>
+  Boolean((message.metadata as ReplyMetadata | undefined)?.pending);
 
 /** The output a tool part carries: pi's result text. */
 export interface ToolOutput {
@@ -75,12 +91,17 @@ export function viewToMessages(
 ): AgentUIMessage[] {
   const messages: AgentUIMessage[] = [];
   let reply: Reply | null = null;
-  let lastUserId: string | null = null;
+  let turn = -1;
+  // Transcript id -> the id the message already has on screen.
+  const alias = new Map<string, string>();
+  for (const message of pending)
+    if (message.state === 'confirmed' && message.matchedId)
+      alias.set(message.matchedId, pendingIdOf(message));
 
   const currentReply = (): Reply => {
     if (!reply) {
       reply = {
-        message: { id: replyIdFor(lastUserId), role: 'assistant', parts: [], metadata: {} },
+        message: { id: replyIdFor(turn), role: 'assistant', parts: [], metadata: {} },
         tools: new Map(),
       };
       messages.push(reply.message);
@@ -91,9 +112,9 @@ export function viewToMessages(
   for (const message of view?.messages ?? []) {
     if (message.role === 'user') {
       reply = null;
-      lastUserId = message.id;
+      turn++;
       messages.push({
-        id: message.id,
+        id: alias.get(message.id) ?? message.id,
         role: 'user',
         parts: [{ type: 'text', text: message.text ?? '' }],
       });
@@ -134,9 +155,9 @@ export function viewToMessages(
   }
 
   for (const message of pending) {
-    if (message.state === 'failed') continue;
+    if (message.state === 'failed' || message.state === 'confirmed') continue;
     messages.push({
-      id: `pending-${message.requestId}`,
+      id: pendingIdOf(message),
       role: 'user',
       parts: [{ type: 'text', text: message.text }],
       metadata: { pending: message.state },

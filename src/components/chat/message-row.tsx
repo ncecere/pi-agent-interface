@@ -53,7 +53,6 @@ export function messageExcerptOf(message: UIMessage): string | null {
 const PENDING_NOTE: Record<NonNullable<ReplyMetadata['pending']>, string> = {
   sending: 'Sending…',
   queued: 'Queued: the agent takes it next.',
-  failed: 'Not sent.',
 };
 
 /** Memoized by object: unchanged messages are not re-rendered or re-parsed. */

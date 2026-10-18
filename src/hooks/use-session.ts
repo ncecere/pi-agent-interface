@@ -27,6 +27,9 @@ export async function fetchMe(): Promise<Me | null> {
 
 /** The session this tab last confirmed; null once it is known to have ended. */
 let confirmed: Me | null = null;
+let confirmedAt = 0;
+/** A session confirmed this recently is not asked about again on each navigation. */
+const FRESH_MS = 30_000;
 
 /**
  * For route guards: the session, read before render. A failure other than
@@ -34,8 +37,10 @@ let confirmed: Me | null = null;
  * navigation inside a signed-in app carries on; only a first load fails.
  */
 export async function loadSession(): Promise<Me | null> {
+  if (confirmed && Date.now() - confirmedAt < FRESH_MS) return confirmed;
   try {
     confirmed = await fetchMe();
+    confirmedAt = Date.now();
     return confirmed;
   } catch (error) {
     if (confirmed) return confirmed;
@@ -45,6 +50,7 @@ export async function loadSession(): Promise<Me | null> {
 
 export function forgetSession() {
   confirmed = null;
+  confirmedAt = 0;
 }
 
 export function useMe() {

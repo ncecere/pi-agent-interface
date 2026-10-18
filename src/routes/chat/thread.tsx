@@ -13,6 +13,7 @@ import { UnavailableState } from '~/components/ui/unavailable-state';
 import { type Connection, peekHandover, useAgentThread } from '~/hooks/use-agent-thread';
 import { useAgent, useAgents, useThreadTitle } from '~/hooks/use-agents';
 import { useChatScroll } from '~/hooks/use-chat-scroll';
+import { isPendingMessage } from '~/lib/chat-view';
 import { usePageTitle } from '~/lib/document-title';
 import { rememberAgent } from '~/routes/chat/home';
 
@@ -53,6 +54,11 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
   const rendererReady = useMarkdownRendererReady(
     session.messages.some((message) => message.role === 'assistant'),
   );
+  // Once the conversation has been shown it stays: nothing later (a stream that
+  // reconnects, the renderer still loading) may swap it, composer and all, back
+  // for a spinner.
+  const [shown, setShown] = useState(false);
+  if (!shown && session.ready && rendererReady) setShown(true);
 
   const { messages, busy, waitingForAgent } = session;
   const working = busy || waitingForAgent;
@@ -63,7 +69,7 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index]!;
       if (message.role === 'assistant') return message.id;
-      if (!message.id.startsWith('pending-')) return null;
+      if (!isPendingMessage(message)) return null;
     }
     return null;
   }, [busy, messages]);
@@ -73,8 +79,7 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
   // "Send again": the question the latest reply answered.
   const { setDraft } = session;
   const lastQuestion = useMemo(
-    () =>
-      messages.findLast((message) => message.role === 'user' && !message.id.startsWith('pending-')),
+    () => messages.findLast((message) => message.role === 'user' && !isPendingMessage(message)),
     [messages],
   );
   const retry = useCallback(() => {
@@ -118,7 +123,7 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
       </UnavailableState>
     );
   }
-  if (!session.ready || !rendererReady) {
+  if (!shown && (!session.ready || !rendererReady)) {
     return (
       <div role="status" aria-label="Loading conversation" className="flex h-full flex-col">
         <FullPageSpinner />

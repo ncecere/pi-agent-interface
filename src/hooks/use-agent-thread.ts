@@ -75,20 +75,30 @@ function clearHandover(threadId: string) {
   }
 }
 
-/** Removes pending messages the transcript now has, oldest first. */
-function reconcile(pending: PendingMessage[], view: ChatView): PendingMessage[] {
-  const consumed = new Map<string, number>();
-  const left = pending.filter((message) => {
-    if (message.state === 'failed') return true;
+/**
+ * Matches messages sent from this tab to the transcript's, oldest first: the
+ * n-th message with a text is the n-th one sent with it, so the same words
+ * sent twice are told apart. A match is kept (`confirmed`, with the
+ * transcript's id) rather than dropped: the message then keeps its identity on
+ * screen, so it does not re-mount (a flash) when the transcript replaces it.
+ */
+export function reconcile(pending: PendingMessage[], view: ChatView): PendingMessage[] {
+  const users = view.messages.filter((message) => message.role === 'user');
+  const taken = new Map<string, number>();
+  let changed = false;
+  const next = pending.map((message) => {
+    if (message.state === 'failed') return message;
     const text = message.text.trim();
-    const before = consumed.get(text) ?? 0;
-    if (userMessagesWithText(view, text) >= message.baseline + before + 1) {
-      consumed.set(text, before + 1);
-      return false;
-    }
-    return true;
+    const same = users.filter((user) => (user.text ?? '').trim() === text);
+    const before = taken.get(text) ?? 0;
+    const match = same[message.baseline + before];
+    if (!match) return message;
+    taken.set(text, before + 1);
+    if (message.state === 'confirmed') return message;
+    changed = true;
+    return { ...message, state: 'confirmed' as const, matchedId: match.id };
   });
-  return left.length === pending.length ? pending : left;
+  return changed ? next : pending;
 }
 
 /**
@@ -301,7 +311,9 @@ export function useAgentThread({
     return next;
   }, [view, pending]);
 
-  const waitingForAgent = pending.some((message) => message.state !== 'failed');
+  const waitingForAgent = pending.some(
+    (message) => message.state === 'sending' || message.state === 'queued',
+  );
 
   // What the agent's avatar shows: a tool running, a stream being restored, a reply that failed.
   const lastReply = messages.findLast((message) => message.role === 'assistant');
@@ -333,8 +345,8 @@ export function useAgentThread({
     connection,
     connectError,
     reconnect,
-    /** Loaded: the first view arrived (or the conversation is new). */
-    ready: view !== null || !exists,
+    /** Shown: the first view arrived, or a first message is on its way (never a spinner for that). */
+    ready: view !== null || handover !== null,
     draft,
     setDraft,
     send,
