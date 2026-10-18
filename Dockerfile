@@ -13,6 +13,12 @@ RUN pnpm prune --prod
 
 # ── Run ────────────────────────────────────────────────────────────────────────────────────
 FROM node:22-slim
+# The runtime needs only `node`. Apply the OS's security updates, and drop npm, corepack and yarn:
+# nothing here runs them, and their bundled packages are the image's only Node findings in a scan.
+RUN apt-get update \
+ && apt-get -y --no-install-recommends upgrade \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-*
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8080 \

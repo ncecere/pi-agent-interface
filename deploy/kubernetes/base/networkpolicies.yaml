@@ -1,0 +1,122 @@
+# NetworkPolicies for the app's pods only (podSelector on its labels), so the
+# base can share a namespace. Once any policy selects a pod, everything not
+# allowed by some policy is denied; pi-agent-interface-default-deny makes that
+# explicit.
+#
+# Overlays commonly patch:
+#   pi-agent-interface-ingress         the ingress controller's namespace
+#                                      (placeholder: ingress-controller)
+#   pi-agent-interface-egress-postgres narrow TCP 5432 to where Postgres runs
+#   pi-agent-interface-egress-dns      if cluster DNS is not kube-dns in kube-system
+# The app calls the agent platform and the identity provider over https (TCP
+# 443 to public addresses, which pi-agent-interface-egress-https allows). The
+# platform also fetches the app's metadata document from the app's public
+# address (nothing to open here: that is the platform's own egress).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pi-agent-interface-default-deny
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+  policyTypes: [Ingress, Egress]
+---
+# Traffic from the ingress controller (or Gateway API implementation) to the app
+# port. Patch the namespace to the controller's. Kubelet probes are not affected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pi-agent-interface-ingress
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+      app.kubernetes.io/component: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-controller
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pi-agent-interface-egress-dns
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pi-agent-interface-egress-postgres
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 5432
+---
+# The agent platform and the identity provider, over https. Public addresses
+# only: private ranges are excluded, so a compromised pod cannot reach the
+# cluster's own network or a cloud metadata address through this rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pi-agent-interface-egress-https
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

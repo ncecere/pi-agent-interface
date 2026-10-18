@@ -1,0 +1,154 @@
+# Pi Agent Interface: the web app and its API on :8080 (/healthz, /readyz on the
+# same port). One Deployment is the whole application. It is stateless: the
+# database holds everything it keeps, so replicas share it. Migrations run when
+# a pod starts, under a PostgreSQL advisory lock, so only one runs at a time and
+# the others wait.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pi-agent-interface
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pi-agent-interface
+        app.kubernetes.io/component: server
+        app.kubernetes.io/part-of: pi-agent-interface
+    spec:
+      serviceAccountName: pi-agent-interface
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Open conversations are server-sent event streams. On SIGTERM the pod is
+      # given time to finish what it is doing; browsers reconnect to another pod.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # the image's `node` user
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: pi-agent-interface
+              app.kubernetes.io/component: server
+          matchLabelKeys: [pod-template-hash]
+      containers:
+        - name: app
+          image: ghcr.io/ncecere/pi-agent-interface
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: pi-agent-interface-config
+          # Secret values come from pi-agent-interface-runtime. A missing
+          # required key stops the pod from starting (CreateContainerConfigError)
+          # rather than starting half-configured.
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pi-agent-interface-runtime
+                  key: DATABASE_URL
+            # 32 or more characters. Encrypts sessions and the platform tokens
+            # the app keeps for people; changing it signs everyone out and
+            # asks everyone to connect again.
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: pi-agent-interface-runtime
+                  key: SESSION_SECRET
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: pi-agent-interface-runtime
+                  key: OIDC_CLIENT_SECRET
+            # Only with PLATFORM_AUTH=service.
+            - name: PLATFORM_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pi-agent-interface-runtime
+                  key: PLATFORM_SERVICE_KEY
+                  optional: true
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          # The listener opens once the database answers and migrations are done.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 36
+          # /readyz: the database answers.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          # /healthz never checks dependencies, so a database outage does not
+          # restart the pods.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pi-agent-interface
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+      app.kubernetes.io/component: server

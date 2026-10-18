@@ -1,27 +1,35 @@
 # Pi Agent Interface
 
-A chat app for [Pi Durable](https://github.com/ncecere/pi-durable-platform) agents. Every person who signs in gets
-their own assistant, with an inbox for working across conversations: what is working, what has a new reply, what
-is snoozed, done or put away.
+A chat app for [Pi Durable](https://github.com/ncecere/pi-durable-platform) agents. People sign in, talk to their
+agents, and work across conversations from one inbox: what is working, what has a new reply, what is snoozed, done
+or put away. Administrators decide which agents everyone gets, which models and templates people may use, and how the
+app looks.
 
-People sign in to **this app** (single sign-on) and never to the agent platform. The app's server talks to
-pi-durable-platform for them with one team service account.
+**Website** <https://pai.bitop.dev> · **Documentation** <https://docs.pai.bitop.dev> ·
+**Image** `ghcr.io/ncecere/pi-agent-interface` · [Releases](https://github.com/ncecere/pi-agent-interface/releases)
+
+People sign in to **this app** (single sign-on). To reach their agents, the app's server uses the agent platform in one
+of two ways (`PLATFORM_AUTH`):
 
 ```
-tim / bob / sally ──sign in──▶ chat server (server/) ──service key──▶ pi-durable-platform
-                                │                                     team: pi-agent-interface
-                                └─ encrypted session cookie           ├─ agent u:<tim>
-                                                                      ├─ agent u:<bob>
-                                                                      └─ agent u:<sally>
+Connect (default)                                       Service account
+─────────────────                                       ───────────────
+person ──sign in──▶ chat server ──person's own token──▶ platform      person ──sign in──▶ chat server ──service key──▶ platform
+        └─ connects their platform account once            │                   └─ one team service account           │
+                                                           ├─ their personal workspace: their agents                  └─ a team: agent u:<person> each
+                                                           └─ their teams' agents
 ```
 
-- **Agents** are the platform's service-managed agents. `PUT /v1/teams/{team}/agents/by-key/u:<person>` creates a
-  person's assistant the first time they open the app, from `AGENT_TEMPLATE`.
+- **Connect.** Each person connects their own platform account once, after signing in. Their agents live in their
+  personal workspace on the platform, beside the agents of the teams they belong to, and the server calls the platform
+  with their token (kept encrypted; the browser never sees it). The platform decides what they may use.
+- **Service account.** For a platform without Connect: one team service account gives each person agents in that team
+  (`PUT /v1/teams/{team}/agents/by-key/u:<person>`). The service key reaches every person's agent, so the server
+  checks on every request that the agent is the signed-in person's own (`server/platform.ts`, tested in
+  `tests/server/app.test.ts`).
 - **Conversations** live on the platform. The app's own Postgres holds who has signed in, their role (admin or
-  user), settings and preferences; sessions are AES-GCM encrypted cookies.
-- **Isolation.** The service key reaches every person's agent, so the server checks on every request that the
-  agent is the signed-in person's own (`server/platform.ts`, tested in `tests/server/app.test.ts`). The team's
-  owners see the agents in the platform console, not their conversations.
+  user), settings and preferences, the connection tokens, and which agent is each person's copy of a provided agent.
+  Sessions are AES-GCM encrypted cookies.
 
 ## What you need
 
@@ -71,14 +79,19 @@ provider that is not https (outside localhost), development accounts on a public
 
 ## Running it
 
-**Docker**
+**Docker.** Releases are published, signed, as a multi-architecture image (pin the digest from the GitHub Release,
+and verify its cosign signature):
 
 ```sh
-docker build -t pi-agent-interface .
-docker run -d -p 8080:8080 --env-file .env pi-agent-interface
+docker run -d -p 8080:8080 --env-file .env ghcr.io/ncecere/pi-agent-interface:v0.2.0
+# or build it:  docker build -t pi-agent-interface .
 ```
 
-One Node process serves the web app and the API, as the non-root `node` user, with a health check on `/healthz`.
+One Node process serves the web app and the API, as the non-root `node` user, with a health check on `/healthz`
+and `/readyz`. It needs a PostgreSQL database (`DATABASE_URL`); `compose.yaml` starts one for development.
+
+**Kubernetes.** `deploy/kubernetes/` has a generic Kustomize base (two replicas, a PodDisruptionBudget, default-deny
+NetworkPolicies); see [its README](deploy/kubernetes/README.md) for what an overlay adds.
 
 **Behind a reverse proxy**, which should terminate TLS and then:
 - not buffer or time out `/api/agents/*/threads/*/events`: it is a server-sent event stream that stays open
@@ -96,7 +109,10 @@ pnpm db:up                   # a Postgres for the app, on 127.0.0.1:55433 (compo
 pnpm dev                     # web on http://localhost:5177, server on 127.0.0.1:5178
 ```
 
-Sign in as tim, bob or sally; each gets their own assistant on the platform.
+Sign in as tim, bob or sally. With a service key in `.env.local` each gets their own assistant in the platform's
+team; without one (or with `PLATFORM_AUTH=connect`) you connect a platform account first. On `http://localhost` the
+app registers itself with the platform, and because the dev accounts' emails are not your platform account's, set
+`CONNECT_EMAIL_MATCH=off` for local Connect.
 
 ```sh
 pnpm typecheck && pnpm test && pnpm lint
@@ -140,6 +156,10 @@ Features today:
 - `src/lib/chat-view.ts`: turns the platform's `ChatView` into AI SDK `UIMessage`s so Open Chat Interface's
   renderers draw it. Unchanged messages keep their identity, so only the reply being written re-renders, and a
   message keeps its identity from "sent" to "in the transcript", so nothing re-mounts as the reply arrives.
+- `server/connect.ts`, `server/connect-agents.ts`: Connect. The OAuth client (authorization code with PKCE; the app
+  is identified by a Client ID Metadata Document, or registers itself on a local address), encrypted token storage
+  with refreshes one at a time per person, and a person's agents in their personal workspace (provided agents made
+  once per person, their own, their teams').
 - `server/events-hub.ts`, `src/hooks/use-platform-events.ts`: one connection to the platform's event stream for
   the whole server, each event passed only to the person whose agent it is (`GET /api/events`). Conversation lists
   update in place, from any device.
@@ -149,5 +169,5 @@ Features today:
   down.
 - `src/components/agent/avatar/`: the animated avatars.
 
-See [CHANGELOG.md](CHANGELOG.md) for what is and is not in this release, and [NOTICE.md](NOTICE.md) for where the
-code and ideas come from.
+See [CHANGELOG.md](CHANGELOG.md) for what is in each release, the [documentation](https://docs.pai.bitop.dev) for
+using and running the app, and [NOTICE.md](NOTICE.md) for where the code and ideas come from. MIT licensed.
