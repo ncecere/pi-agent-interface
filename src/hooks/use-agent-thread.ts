@@ -10,6 +10,7 @@ import {
 } from '~/api/client';
 import type { AgentLive } from '~/components/agent/avatar/agent-live';
 import { noteNewThread, threadsKey } from '~/hooks/use-agents';
+import { useInboxActions } from '~/hooks/use-inbox';
 import {
   type AgentUIMessage,
   type PendingMessage,
@@ -17,6 +18,7 @@ import {
   userMessagesWithText,
   viewToMessages,
 } from '~/lib/chat-view';
+import { threadKey } from '~/lib/inbox';
 import { isFinal, readEventStream } from '~/lib/sse';
 
 /** The platform's limit on one message. */
@@ -216,13 +218,29 @@ export function useAgentThread({
     if (!busy) setStopping(false);
   }, [busy]);
 
+  // The inbox learns when this conversation starts and stops working, and when it is looked at.
+  const inbox = useInboxActions();
+  const inboxKey = threadKey(agentId, threadId);
+  const lastViewReply = view?.messages.findLast((message) => message.role === 'assistant');
+  const replyFailed = Boolean(lastViewReply?.error && lastViewReply.error !== 'Interrupted');
+
   // The reply ended: its conversation moved up the list (and may be new there).
   const wasBusy = useRef(busy);
   useEffect(() => {
-    if (wasBusy.current && !busy)
+    if (busy) inbox.working(inboxKey);
+    if (wasBusy.current && !busy) {
+      inbox.finished(inboxKey, replyFailed);
       void queryClient.invalidateQueries({ queryKey: threadsKey(agentId) });
+    }
     wasBusy.current = busy;
-  }, [busy, agentId, queryClient]);
+  }, [busy, agentId, queryClient, inbox, inboxKey, replyFailed]);
+
+  // Open and in view: whatever was new is seen.
+  const seenView = view !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `view` is the trigger: each change of an open conversation is seen
+  useEffect(() => {
+    if (seenView && !hidden) inbox.visit(inboxKey);
+  }, [view, seenView, hidden, inbox, inboxKey]);
 
   // ---- Sending ----------------------------------------------------------
   const submit = useCallback(

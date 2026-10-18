@@ -201,9 +201,9 @@
   animation-delay: var(--phase, 0s);
 }
 
+/* Idle gets drowsy (half-lidded) but never dozes: z's mean the agent is hibernating. */
 .av-face.av-idle .face-zzz {
-  animation: av-face-idle-zzz 26s linear infinite;
-  animation-delay: var(--phase, 0s);
+  opacity: 0;
 }
 
 .av-face.av-idle .face-z,
@@ -290,14 +290,14 @@
     transform: scaleY(0.5);
   }
   46% {
-    transform: scaleY(0.14);
+    transform: scaleY(0.4);
   }
   47.5% {
-    transform: scaleY(0.45);
+    transform: scaleY(0.55);
   }
   50%,
   84% {
-    transform: scaleY(0.1);
+    transform: scaleY(0.42);
   }
   86% {
     transform: scaleY(1.3);

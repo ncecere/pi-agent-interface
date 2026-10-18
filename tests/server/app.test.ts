@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createApp } from '../../server/app.ts';
+import { createApp, MAX_STREAMS_PER_USER, tolerant } from '../../server/app.ts';
 import type { Config } from '../../server/config.ts';
 import {
   agentKeyFor,
@@ -62,6 +62,16 @@ function fakePlatform() {
     },
     async fetch(path: string, init: RequestInit = {}) {
       relayed.push(`${init.method ?? 'GET'} ${path}`);
+      if (path.endsWith('/events'))
+        // A stream that stays open, as a conversation's does.
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('event: view\ndata: {}\n\n'));
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        );
       return Response.json({ data: [] });
     },
   };
@@ -189,5 +199,63 @@ describe('sessions and writes', () => {
       body: '{"account":"tim"}',
     });
     expect(response.status).toBe(404);
+  });
+});
+
+describe('streams', () => {
+  const open = (cookie: string, thread: string) =>
+    app.request(`/api/agents/${TIM_AGENT}/threads/${thread}/events`, {
+      headers: { Cookie: cookie },
+    });
+
+  it('caps how many conversation streams one person holds open, and frees a slot when one closes', async () => {
+    const { cookie } = await signIn('tim');
+    const held = [];
+    for (let i = 0; i < MAX_STREAMS_PER_USER; i++) {
+      const response = await open(cookie, `t${i}`);
+      expect(response.status).toBe(200);
+      held.push(response);
+    }
+    expect((await open(cookie, 'more')).status).toBe(429);
+
+    await held[0]!.body!.cancel();
+    const again = await open(cookie, 'again');
+    expect(again.status).toBe(200);
+    await again.body!.cancel();
+    for (const response of held.slice(1)) await response.body!.cancel();
+  });
+
+  it('counts streams per person', async () => {
+    const tim = await signIn('tim');
+    const bob = await signIn('bob');
+    const held = [];
+    for (let i = 0; i < MAX_STREAMS_PER_USER; i++) held.push(await open(tim.cookie, `t${i}`));
+    const own = await app.request(`/api/agents/${BOB_AGENT}/threads/t1/events`, {
+      headers: { Cookie: bob.cookie },
+    });
+    expect(own.status).toBe(200);
+    await own.body!.cancel();
+    for (const response of held) await response.body!.cancel();
+  });
+
+  it('ends a stream cleanly when the platform drops it', async () => {
+    let ended = 0;
+    const broken = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: a\n\n'));
+      },
+      pull() {
+        throw new TypeError('terminated');
+      },
+    });
+    const reader = tolerant(broken, () => ended++).getReader();
+    expect((await reader.read()).done).toBe(false);
+    expect((await reader.read()).done).toBe(true); // closed, not an error
+    expect(ended).toBe(1);
+  });
+
+  it('never caches API answers', async () => {
+    const response = await app.request('/api/me?optional=true');
+    expect(response.headers.get('cache-control')).toBe('no-store');
   });
 });

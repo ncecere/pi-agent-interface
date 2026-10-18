@@ -24,6 +24,46 @@ export const DEV_ACCOUNTS = [
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const THREAD_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_BODY_BYTES = 256 * 1024;
+/** Open conversation streams one person may have at once; each keeps an agent awake. */
+export const MAX_STREAMS_PER_USER = 8;
+
+/**
+ * Ends a relayed stream cleanly when the platform closes it (its proxy's idle
+ * timeout, a restart): the browser sees the end and reconnects, and nothing is
+ * logged as a crash. `onEnd` runs once, however the stream ends.
+ */
+export function tolerant(
+  body: ReadableStream<Uint8Array>,
+  onEnd: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    onEnd();
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          end();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch {
+        controller.close();
+        end();
+      }
+    },
+    cancel() {
+      end();
+      return reader.cancel().catch(() => undefined);
+    },
+  });
+}
 
 type Env = { Variables: { session: Session } };
 
@@ -102,6 +142,8 @@ export function createApp(config: Config, platform = new Platform(config)) {
 
   app.use('*', async (c, next) => {
     await next();
+    if (c.req.path.startsWith('/api/') && !c.res.headers.has('Cache-Control'))
+      c.header('Cache-Control', 'no-store');
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     c.header('X-Frame-Options', 'DENY');
@@ -261,7 +303,13 @@ export function createApp(config: Config, platform = new Platform(config)) {
   });
 
   /** Relays one request to the agent on the platform, passing its answer through. */
-  const relay = async (c: Context, path: string, init: RequestInit = {}) => {
+  const relay = async (
+    c: Context,
+    path: string,
+    init: RequestInit = {},
+    /** For a stream: called once when it ends, however it ends. */
+    onStreamEnd?: () => void,
+  ) => {
     let upstream: Response;
     try {
       upstream = await platform.fetch(path, { ...init, signal: c.req.raw.signal });
@@ -279,6 +327,11 @@ export function createApp(config: Config, platform = new Platform(config)) {
     if (headers.get('Content-Type')?.startsWith('text/event-stream')) {
       headers.set('Cache-Control', 'no-store');
       headers.set('X-Accel-Buffering', 'no'); // no buffering in reverse proxies
+      if (upstream.body)
+        return new Response(tolerant(upstream.body, onStreamEnd ?? (() => undefined)), {
+          status: upstream.status,
+          headers,
+        });
     }
     return new Response(upstream.body, { status: upstream.status, headers });
   };
@@ -323,9 +376,32 @@ export function createApp(config: Config, platform = new Platform(config)) {
   app.post('/api/agents/:agentId/threads/:threadId/stop', (c) =>
     relay(c, threadPath(c, '/stop'), { method: 'POST' }),
   );
-  app.get('/api/agents/:agentId/threads/:threadId/events', (c) =>
-    relay(c, threadPath(c, '/events'), { headers: { Accept: 'text/event-stream' } }),
-  );
+  const streams = new Map<string, number>();
+  app.get('/api/agents/:agentId/threads/:threadId/events', async (c) => {
+    const path = threadPath(c, '/events');
+    const userId = c.get('session').user.id;
+    const open = streams.get(userId) ?? 0;
+    if (open >= MAX_STREAMS_PER_USER)
+      return fail(
+        c,
+        429,
+        'too_many_streams',
+        'Too many conversations are open at once. Close some and try again.',
+      );
+    streams.set(userId, open + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const left = (streams.get(userId) ?? 1) - 1;
+      if (left <= 0) streams.delete(userId);
+      else streams.set(userId, left);
+    };
+    const response = await relay(c, path, { headers: { Accept: 'text/event-stream' } }, release);
+    // Anything that is not a stream (an error, a refusal) holds nothing open.
+    if (!response.headers.get('Content-Type')?.startsWith('text/event-stream')) release();
+    return response;
+  });
 
   app.all('/api/*', (c) => fail(c, 404, 'not_found', 'Not found'));
 

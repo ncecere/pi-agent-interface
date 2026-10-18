@@ -2,7 +2,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { PanelLeft, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Wordmark } from '~/components/brand/wordmark';
-import { SidebarAgents } from '~/components/layout/sidebar-agents';
+import { SidebarInbox } from '~/components/layout/sidebar-inbox';
 import { UserMenu } from '~/components/layout/user-menu';
 import { Button } from '~/components/ui/button';
 import { useAuthConfig } from '~/hooks/use-session';
@@ -92,8 +92,8 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
               setSearch('');
             }
           }}
-          placeholder="Search agents and conversations..."
-          aria-label="Search agents and conversations"
+          placeholder="Search conversations..."
+          aria-label="Search conversations"
           dir="auto"
           aria-describedby="thread-search-hint"
           className="h-11 w-full bg-transparent pl-8 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
@@ -101,13 +101,13 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
       </div>
 
       <p id="thread-search-hint" className="sr-only">
-        Filters agents by name and open agents' conversations by title.
+        Filters your conversations by title.
       </p>
 
       <div className="mx-3 h-px bg-[var(--border-subtle)]" />
 
       <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
-        <SidebarAgents filter={search} />
+        <SidebarInbox filter={search} />
       </nav>
 
       <div className="hidden items-center gap-1 p-2 lg:flex">

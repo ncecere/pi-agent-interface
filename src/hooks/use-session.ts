@@ -7,6 +7,7 @@ import {
   noteUnauthorized,
   setCsrfToken,
 } from '~/api/client';
+import { clearUserData } from '~/lib/inbox-store';
 
 export const ME_KEY = ['me'] as const;
 export const AUTH_CONFIG_KEY = ['auth-config'] as const;
@@ -76,9 +77,12 @@ export function useAuthConfig() {
 
 export function useSignOut() {
   const queryClient = useQueryClient();
+  const userId = useCurrentUser()?.user.id;
   return useMutation({
     mutationFn: () => api.post('/auth/logout'),
     onSettled: () => {
+      // Nothing of this person (inbox state, conversation titles) stays in the browser.
+      if (userId) clearUserData(userId);
       forgetSession();
       noteUnauthorized();
       setCsrfToken('');
