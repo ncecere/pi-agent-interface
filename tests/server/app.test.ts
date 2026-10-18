@@ -432,3 +432,108 @@ describe('preferences', () => {
     ).toEqual({});
   });
 });
+
+describe('branding and overview', () => {
+  let tim: { headers: Record<string, string>; cookie: string };
+  beforeEach(async () => {
+    app = createApp(
+      { ...config, initialAdminEmail: 'tim@example.test' },
+      { store: new MemoryStore(), platform: platform as unknown as Platform },
+    );
+    const { cookie, csrf } = await signIn('tim');
+    tim = {
+      cookie,
+      headers: {
+        Cookie: cookie,
+        'X-CSRF-Token': csrf,
+        Origin: 'http://localhost:5177',
+        'Content-Type': 'application/json',
+      },
+    };
+  });
+  const put = (body: unknown) =>
+    app.request('/api/admin/settings/branding', {
+      method: 'PUT',
+      headers: tim.headers,
+      body: JSON.stringify(body),
+    });
+
+  it('starts from the defaults and shows saved branding to everyone, signed in or not', async () => {
+    const before = await (await app.request('/api/auth/config')).json();
+    expect(before.data.instance).toMatchObject({
+      name: 'Pi Agents',
+      logoUrl: null,
+      colorTheme: 'neutral',
+      defaultTheme: 'dark',
+    });
+    const saved = await put({
+      name: 'Acme Agents',
+      logoUrl: 'https://acme.example/logo.svg',
+      colorTheme: 'violet',
+      defaultTheme: 'light',
+    });
+    expect(saved.status).toBe(200);
+    const after = await (await app.request('/api/auth/config')).json();
+    expect(after.data.instance).toMatchObject({
+      name: 'Acme Agents',
+      logoUrl: 'https://acme.example/logo.svg',
+      colorTheme: 'violet',
+      defaultTheme: 'light',
+    });
+  });
+
+  it('refuses unsafe logos and bad values, naming each field', async () => {
+    const response = await put({
+      name: '',
+      logoUrl: 'javascript:alert(1)',
+      colorTheme: 'pink',
+      defaultTheme: 'sepia',
+    });
+    expect(response.status).toBe(400);
+    expect(Object.keys((await response.json()).error.details).sort()).toEqual([
+      'colorTheme',
+      'defaultTheme',
+      'logoUrl',
+      'name',
+    ]);
+    for (const logoUrl of [
+      'http://acme.example/logo.svg',
+      '//evil.example/x.png',
+      'https://user:pw@acme.example/x.png',
+    ]) {
+      expect(
+        (await put({ name: 'A', logoUrl, colorTheme: 'blue', defaultTheme: 'dark' })).status,
+        logoUrl,
+      ).toBe(400);
+    }
+    expect(
+      (
+        await put({
+          name: 'A',
+          logoUrl: '/brand/logo.svg',
+          colorTheme: 'blue',
+          defaultTheme: 'dark',
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it('keeps branding and the overview to administrators', async () => {
+    const bob = await signIn('bob');
+    const asBob = { Cookie: bob.cookie, 'X-CSRF-Token': bob.csrf, Origin: 'http://localhost:5177' };
+    expect((await app.request('/api/admin/overview', { headers: asBob })).status).toBe(403);
+    expect(
+      (
+        await app.request('/api/admin/settings/branding', {
+          method: 'PUT',
+          headers: asBob,
+          body: '{}',
+        })
+      ).status,
+    ).toBe(403);
+    const overview = await (
+      await app.request('/api/admin/overview', { headers: { Cookie: tim.cookie } })
+    ).json();
+    expect(overview.data).toMatchObject({ people: 2, admins: 1, suspended: 0, activeToday: 2 });
+  });
+});

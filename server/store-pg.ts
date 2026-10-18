@@ -230,6 +230,22 @@ export class PgStore implements Store {
     }));
   }
 
+  async setting(key: string) {
+    const [row] = await this.sql<
+      { value: unknown }[]
+    >`select value from settings where key = ${key}`;
+    return row ? row.value : null;
+  }
+
+  async setSetting(key: string, value: unknown, actorId: string | null) {
+    await this.sql.begin(async (tx) => {
+      await tx`
+        insert into settings (key, value, updated_by) values (${key}, ${tx.json(value as never)}, ${actorId})
+        on conflict (key) do update set value = excluded.value, updated_at = now(), updated_by = excluded.updated_by`;
+      await tx`insert into audit_log (actor_id, action) values (${actorId}, ${`settings.${key}`})`;
+    });
+  }
+
   async prefs(personId: string) {
     const rows = await this.sql<{ key: string; value: unknown }[]>`
       select key, value from user_prefs where person_id = ${personId}`;

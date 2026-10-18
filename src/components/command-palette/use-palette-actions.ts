@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronsLeftRight, MoonStar, Palette, Plus, Settings } from 'lucide-react';
+import { ChevronsLeftRight, MoonStar, Palette, Plus, Settings, Shield } from 'lucide-react';
 import { useMemo } from 'react';
+import { useCurrentUser } from '~/hooks/use-session';
 import { focusComposerSoon, touchOnly } from '~/lib/focus-after-navigation';
 import { shortcutKeys } from '~/lib/keyboard-shortcuts';
 import { useTheme } from '~/providers/theme-provider';
@@ -13,6 +14,7 @@ export function usePaletteActions({
 }: Pick<CommandPaletteProps, 'sidebarOpen' | 'onSidebarOpenChange'>) {
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
+  const admin = useCurrentUser()?.user.role === 'admin';
   return useMemo<PaletteGroup[]>(
     () => [
       {
@@ -44,6 +46,17 @@ export function usePaletteActions({
             icon: Settings,
             onSelect: () => navigate({ to: '/settings' }),
           },
+          ...(admin
+            ? [
+                {
+                  id: 'admin',
+                  label: 'Open admin dashboard',
+                  keywords: 'administration people users branding audit',
+                  icon: Shield,
+                  onSelect: () => navigate({ to: '/admin' }),
+                },
+              ]
+            : []),
           {
             id: 'toggle-theme',
             label: `Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`,
@@ -62,6 +75,6 @@ export function usePaletteActions({
         ],
       },
     ],
-    [navigate, onSidebarOpenChange, resolvedTheme, setTheme, sidebarOpen],
+    [admin, navigate, onSidebarOpenChange, resolvedTheme, setTheme, sidebarOpen],
   );
 }

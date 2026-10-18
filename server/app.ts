@@ -2,6 +2,7 @@ import { type Context, Hono, type MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import * as oidc from 'openid-client';
+import { type Branding, defaultBranding, parseBranding } from './branding.ts';
 import type { Config } from './config.ts';
 import { Platform, PlatformError } from './platform.ts';
 import {
@@ -233,21 +234,38 @@ export function createApp(config: Config, deps: { store: Store; platform?: Platf
 
   // ---- Sign-in ------------------------------------------------------------
 
-  app.get('/api/auth/config', (c) =>
-    c.json({
+  // The instance's branding, read again at most every 30 seconds.
+  let brandingCache: { value: Branding; at: number } | null = null;
+  const branding = async (): Promise<Branding> => {
+    if (brandingCache && Date.now() - brandingCache.at < 30_000) return brandingCache.value;
+    const fallback = defaultBranding(process.env.APP_NAME?.trim() || undefined);
+    const saved = parseBranding({
+      ...fallback,
+      ...((await store.setting('branding')) as object | null),
+    });
+    const value = 'branding' in saved ? saved.branding : fallback;
+    brandingCache = { value, at: Date.now() };
+    return value;
+  };
+
+  app.get('/api/auth/config', async (c) => {
+    const brand = await branding();
+    return c.json({
       data: {
         oidcEnabled: config.oidc !== null,
         devAuthEnabled: config.devAuth,
         devAccounts: config.devAuth ? DEV_ACCOUNTS : [],
         instance: {
-          name: process.env.APP_NAME?.trim() || 'Pi Agents',
-          logoUrl: null,
+          name: brand.name,
+          logoUrl: brand.logoUrl,
+          colorTheme: brand.colorTheme,
+          defaultTheme: brand.defaultTheme,
           orgName: '',
           supportUrl: null,
         },
       },
-    }),
-  );
+    });
+  });
 
   app.get('/api/me', async (c) => {
     const found = await current(c);
@@ -429,6 +447,45 @@ export function createApp(config: Config, deps: { store: Store; platform?: Platf
         return fail(c, error.code === 'not_found' ? 404 : 409, error.code, error.message);
       throw error;
     }
+  });
+
+  app.get('/api/admin/overview', async (c) => {
+    const everyone = await store.people();
+    const day = 24 * 60 * 60 * 1000;
+    const since = (days: number) => Date.now() - days * day;
+    return c.json({
+      data: {
+        people: everyone.length,
+        admins: everyone.filter((person) => person.role === 'admin' && person.status === 'active')
+          .length,
+        suspended: everyone.filter((person) => person.status === 'suspended').length,
+        activeToday: everyone.filter((person) => (person.lastSeenAt?.getTime() ?? 0) > since(1))
+          .length,
+        activeThisWeek: everyone.filter((person) => (person.lastSeenAt?.getTime() ?? 0) > since(7))
+          .length,
+        newThisMonth: everyone.filter((person) => person.createdAt.getTime() > since(30)).length,
+      },
+    });
+  });
+
+  app.get('/api/admin/settings/branding', async (c) => c.json({ data: await branding() }));
+
+  app.put('/api/admin/settings/branding', async (c) => {
+    const parsed = parseBranding(await c.req.json().catch(() => null));
+    if ('problems' in parsed)
+      return c.json(
+        {
+          error: {
+            code: 'invalid',
+            message: 'Check the highlighted fields.',
+            details: parsed.problems,
+          },
+        },
+        400,
+      );
+    await store.setSetting('branding', parsed.branding, c.get('person').id);
+    brandingCache = null;
+    return c.json({ data: parsed.branding });
   });
 
   app.get('/api/admin/audit', async (c) => {

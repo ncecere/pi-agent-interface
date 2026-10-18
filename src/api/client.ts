@@ -23,7 +23,14 @@ export interface AuthConfig {
   oidcEnabled: boolean;
   devAuthEnabled: boolean;
   devAccounts: { id: string; name: string; email: string }[];
-  instance: { name: string; logoUrl: string | null; orgName: string; supportUrl: string | null };
+  instance: {
+    name: string;
+    logoUrl: string | null;
+    colorTheme: 'neutral' | 'blue' | 'violet' | 'emerald';
+    defaultTheme: 'light' | 'dark' | 'system';
+    orgName: string;
+    supportUrl: string | null;
+  };
 }
 
 /** An error response: `{"error": {"code", "message"}}`. */

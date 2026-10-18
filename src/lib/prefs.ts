@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { api } from '~/api/client';
 import { AVATAR_STYLES, type AvatarStyle } from '~/components/agent/avatar/avatar-art';
 import { setAvatarStyle, useAvatarStyle } from '~/components/agent/avatar/avatar-prefs';
-import { useCurrentUser } from '~/hooks/use-session';
+import { useAuthConfig, useCurrentUser } from '~/hooks/use-session';
 import { useTheme } from '~/providers/theme-provider';
 import { COLOR_THEMES, type ColorTheme, THEME_MODES, type ThemeMode } from '~/shared';
 
@@ -54,6 +54,7 @@ export function usePrefs() {
  */
 export function AppearanceSync() {
   const { data } = usePrefs();
+  const { data: config } = useAuthConfig();
   const theme = useTheme();
   const avatarStyle = useAvatarStyle();
   const applied = useRef(false);
@@ -69,10 +70,21 @@ export function AppearanceSync() {
   const json = JSON.stringify(current);
 
   useEffect(() => {
-    if (!data || applied.current) return;
+    if (!data || !config || applied.current) return;
     applied.current = true;
     const saved = parseAppearance(data.appearance);
-    if (Object.keys(saved).length === 0) return; // nothing saved yet: this browser's choices are saved below
+    if (Object.keys(saved).length === 0) {
+      // Nothing chosen yet: the instance's look (Admin → Branding), not saved as the person's own.
+      const { colorTheme, defaultTheme } = config.instance;
+      theme.setInstanceDefaultTheme(defaultTheme);
+      theme.setColorTheme(colorTheme);
+      lastSaved.current = JSON.stringify({
+        ...current,
+        colorTheme,
+        theme: localStorage.getItem('oci.theme') ? current.theme : defaultTheme,
+      });
+      return;
+    }
     const next = { ...current, ...saved };
     lastSaved.current = JSON.stringify(next);
     if (saved.theme) theme.setTheme(saved.theme);

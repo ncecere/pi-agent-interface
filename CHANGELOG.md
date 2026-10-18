@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Admin dashboard** (`/admin`, administrators only, in Open Chat Interface's layout): Overview (people, activity,
+  recent changes), People (search, make administrator or member, suspend or restore), Branding (name, logo,
+  default accent and appearance, shown on every page and the sign-in page) and the Audit log.
 - **Settings** (`/settings`, in Open Chat Interface's layout): Account (profile from sign-in, sign out, sign out
   everywhere), Customization (light/dark/system, accent, avatar style, Enter behaviour, code wrapping) and
   Conversations (archived and done, restore or delete, one by one or together). Appearance is saved to the

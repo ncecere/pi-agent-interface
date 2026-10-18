@@ -142,11 +142,48 @@ const settingsChildren = [
   ),
 ];
 
+/** Administration: administrators only (the server checks every request too). */
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: 'admin',
+  beforeLoad: async ({ location }) => {
+    const session = await loadSession();
+    if (!session) throw redirect({ to: '/sign-in', search: signInSearch(location.href) as never });
+    if (session.user.role !== 'admin') throw redirect({ to: '/' });
+    return { session };
+  },
+  component: lazyRouteComponent(() => import('~/components/admin/admin-layout'), 'AdminLayout'),
+  pendingComponent: FullPageSpinner,
+});
+
+const adminPage = <P extends string>(path: P, component: ReturnType<typeof lazyRouteComponent>) =>
+  createRoute({ getParentRoute: () => adminRoute, path, component });
+
+const adminChildren = [
+  adminPage(
+    '/admin',
+    lazyRouteComponent(() => import('~/routes/admin/overview'), 'AdminOverviewPage'),
+  ),
+  adminPage(
+    '/admin/people',
+    lazyRouteComponent(() => import('~/routes/admin/people'), 'AdminPeoplePage'),
+  ),
+  adminPage(
+    '/admin/branding',
+    lazyRouteComponent(() => import('~/routes/admin/branding'), 'AdminBrandingPage'),
+  ),
+  adminPage(
+    '/admin/audit',
+    lazyRouteComponent(() => import('~/routes/admin/audit'), 'AdminAuditPage'),
+  ),
+];
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   avatarsRoute,
   authenticatedRoute.addChildren([chatHomeRoute, agentRoute, threadRoute]),
   settingsRoute.addChildren(settingsChildren),
+  adminRoute.addChildren(adminChildren),
 ]);
 
 export const router = createRouter({

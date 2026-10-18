@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { LogOut, Settings } from 'lucide-react';
+import { LogOut, Settings, Shield } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +61,14 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
           {user.email || name}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {user.role === 'admin' && (
+          <DropdownMenuItem asChild>
+            <Link to="/admin">
+              <Shield />
+              Admin dashboard
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem asChild>
           <Link to="/settings">
             <Settings />

@@ -68,6 +68,10 @@ export interface Store {
   /** Lockout recovery: makes the person with this email an active administrator. */
   promote(email: string): Promise<Person | null>;
   audit(limit: number): Promise<AuditEntry[]>;
+  /** An instance-wide setting (branding…), or null when never saved. */
+  setting(key: string): Promise<unknown>;
+  /** Saves a setting, recording who changed it in the audit log. */
+  setSetting(key: string, value: unknown, actorId: string | null): Promise<void>;
   /** A person's saved preferences, by key (appearance, inbox…). */
   prefs(personId: string): Promise<Record<string, unknown>>;
   setPref(personId: string, key: string, value: unknown): Promise<void>;
@@ -183,6 +187,17 @@ export class MemoryStore implements Store {
 
   async audit(limit: number) {
     return [...this.log].reverse().slice(0, limit);
+  }
+
+  private readonly settingsMap = new Map<string, unknown>();
+
+  async setting(key: string) {
+    return this.settingsMap.has(key) ? structuredClone(this.settingsMap.get(key)) : null;
+  }
+
+  async setSetting(key: string, value: unknown, actorId: string | null) {
+    this.settingsMap.set(key, structuredClone(value));
+    this.record(actorId, `settings.${key}`, null);
   }
 
   private readonly saved = new Map<string, Record<string, unknown>>();

@@ -118,6 +118,18 @@ function contract(name: string, make: () => Promise<Store>) {
       });
     });
 
+    it('saves settings, and records who changed them', async () => {
+      await store.signIn(tim, 'tim@example.test');
+      expect(await store.setting('branding')).toBeNull();
+      await store.setSetting('branding', { name: 'Acme' }, 'tim');
+      await store.setSetting('branding', { name: 'Acme Agents' }, 'tim');
+      expect(await store.setting('branding')).toEqual({ name: 'Acme Agents' });
+      expect((await store.audit(1))[0]).toMatchObject({
+        actorId: 'tim',
+        action: 'settings.branding',
+      });
+    });
+
     it('keeps an audit log of who changed what, newest first', async () => {
       await store.signIn(tim, 'tim@example.test');
       await store.signIn(bob, null);
