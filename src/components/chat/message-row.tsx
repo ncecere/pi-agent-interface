@@ -8,6 +8,7 @@ import { MessageActions } from '~/components/chat/message-actions';
 import {
   failureOf,
   interruptionOf,
+  reasoningOf,
   replyLayoutOf,
   stoppedNoteOf,
   stoppedOf,
@@ -129,7 +130,14 @@ export const MessageRow = memo(function MessageRow({
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <ReplyBody key={message.id} message={message} text={text} streaming={streaming} />
+        {streaming && agent && !text && !reasoningOf(message) && !message.parts.some(isToolPart) ? (
+          // Nothing of the reply yet: say so beside its avatar, instead of a second one below.
+          <p role="status" className="flex h-7 items-center text-xs text-[var(--text-muted)]">
+            Thinking…
+          </p>
+        ) : (
+          <ReplyBody key={message.id} message={message} text={text} streaming={streaming} />
+        )}
         {interruption && (
           <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
             {interruption}

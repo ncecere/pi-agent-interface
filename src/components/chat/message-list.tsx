@@ -67,7 +67,10 @@ export const MessageList = memo(function MessageList({
   );
   // The reply being written shows its own progress; a message waiting behind
   // it says so on its bubble.
-  const showDots = working && !hasVisibleContent && !(live && messages.at(-1) !== live);
+  // A reply row with an avatar says it is working itself (MessageRow); this
+  // indicator is for the moment before that row exists, so there is never a second avatar.
+  const showDots =
+    working && !hasVisibleContent && !(live && agent) && !(live && messages.at(-1) !== live);
   const dotsLabel = waitingLabel ?? (live && reasoningOf(live) ? 'Thinking' : 'Working');
 
   // Messages that open with the same words are also named by their place.
