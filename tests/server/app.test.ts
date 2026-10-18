@@ -12,6 +12,7 @@ import { userIdFor } from '../../server/session.ts';
 
 const config: Config = {
   appUrl: new URL('http://localhost:5177'),
+  host: '127.0.0.1',
   port: 0,
   platformUrl: new URL('http://localhost:8098'),
   platformTeam: 'pai',

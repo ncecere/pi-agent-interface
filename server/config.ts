@@ -8,6 +8,8 @@ import { existsSync } from 'node:fs';
 export interface Config {
   /** Where people reach this app, e.g. https://chat.example.com. Its origin is the only one allowed to write. */
   appUrl: URL;
+  /** The address to listen on: loopback for development, 0.0.0.0 in a container. */
+  host: string;
   port: number;
   /** pi-durable-platform's address. */
   platformUrl: URL;
@@ -81,6 +83,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   if (!oidc && !devAuth) problems.push('Configure OIDC_* for sign-in (or DEV_AUTH=true locally)');
 
+  if (oidc && oidc.issuer.protocol !== 'https:' && !isLoopback(oidc.issuer))
+    problems.push('OIDC_ISSUER must use https');
+
   const platformUrl = url('PLATFORM_URL');
   if (platformUrl.protocol !== 'https:' && !isLoopback(platformUrl))
     problems.push('PLATFORM_URL must use https (the service key travels with every request)');
@@ -90,6 +95,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const ttlHours = Number(env.SESSION_TTL_HOURS ?? 168);
   const config: Config = {
     appUrl,
+    host: env.HOST?.trim() || '127.0.0.1',
     port: Number(env.PORT ?? 5178),
     platformUrl,
     platformTeam: required('PLATFORM_TEAM'),

@@ -29,9 +29,9 @@ if (config.staticDir) {
   });
 }
 
-const server = serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
+const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
   console.log(
-    `[server] http://127.0.0.1:${info.port} for ${config.appUrl.origin} · platform ${config.platformUrl.origin} · team ${config.platformTeam}` +
+    `[server] http://${config.host}:${info.port} for ${config.appUrl.origin} · platform ${config.platformUrl.origin} · team ${config.platformTeam}` +
       `${config.oidc ? ' · single sign-on' : ''}${config.devAuth ? ' · DEV_AUTH' : ''}`,
   );
 });

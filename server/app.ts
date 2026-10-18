@@ -90,7 +90,10 @@ export function createApp(config: Config, platform = new Platform(config)) {
   const oidcClient = () => {
     if (!config.oidc) throw new Error('single sign-on is not configured');
     oidcConfig ??= oidc
-      .discovery(config.oidc.issuer, config.oidc.clientId, config.oidc.clientSecret)
+      .discovery(config.oidc.issuer, config.oidc.clientId, config.oidc.clientSecret, undefined, {
+        // https is required of the provider (see config.ts), except on loopback.
+        execute: config.oidc.issuer.protocol === 'http:' ? [oidc.allowInsecureRequests] : [],
+      })
       .catch((error) => {
         oidcConfig = null; // try discovery again on the next sign-in
         throw error;
@@ -144,10 +147,16 @@ export function createApp(config: Config, platform = new Platform(config)) {
     await next();
     if (c.req.path.startsWith('/api/') && !c.res.headers.has('Cache-Control'))
       c.header('Cache-Control', 'no-store');
+    if (secure) c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     c.header('X-Frame-Options', 'DENY');
   });
+
+  // ---- Health ---------------------------------------------------------------
+
+  /** For a container's or a load balancer's health check: the server is up (it does not call the platform). */
+  app.get('/healthz', (c) => c.json({ ok: true }));
 
   // ---- Sign-in ------------------------------------------------------------
 
