@@ -144,3 +144,11 @@
     outline: 2px solid var(--accent-bright);
   }
 }
+
+/* A conversation arriving in the sidebar fades in (see sidebar-inbox.tsx). */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}

@@ -379,3 +379,13 @@
   --color-background: var(--bg-root);
   --color-foreground: var(--text-primary);
 }
+
+/* Sidebar rows, as t3code tints them: soft on hover, a little stronger for the open conversation. */
+.dark {
+  --sidebar-row-hover: color-mix(in srgb, white 6%, transparent);
+  --sidebar-row-active: color-mix(in srgb, white 10%, transparent);
+}
+.light {
+  --sidebar-row-hover: color-mix(in srgb, black 4%, transparent);
+  --sidebar-row-active: color-mix(in srgb, black 7%, transparent);
+}

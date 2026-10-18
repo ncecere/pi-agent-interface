@@ -229,8 +229,8 @@ export function SettingsConversationsPage() {
         onRestore={(entry) => actions.unarchive(entry.key)}
       />
       <Group
-        title="Done"
-        empty="Nothing marked done."
+        title="Settled"
+        empty="Nothing settled. Settle a conversation from the sidebar when you're finished with it."
         entries={inbox.sections.done}
         agentName={agentName}
         dateOf={(entry) => entry.meta.settledAt}

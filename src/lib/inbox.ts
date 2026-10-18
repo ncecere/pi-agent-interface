@@ -117,7 +117,7 @@ export function needsAttention(meta: ThreadMeta, now: number): boolean {
 export const STATUS_LABEL: Record<NonNullable<RowStatus>, string> = {
   working: 'Working',
   failed: 'Failed',
-  unread: 'New reply',
+  unread: 'Done',
   woke: 'Woke',
 };
 

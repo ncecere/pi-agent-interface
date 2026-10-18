@@ -6,8 +6,13 @@ import {
   ArchiveRestore,
   Check,
   ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  CircleDashed,
   CircleDot,
+  Clock,
   Ellipsis,
+  type LucideIcon,
   Pin,
   PinOff,
   Trash2,
@@ -17,6 +22,15 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { Agent } from '~/api/client';
 import { AgentAvatar } from '~/components/agent/agent-avatar';
+import { Button } from '~/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '~/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,9 +55,6 @@ import {
   untilLabel,
 } from '~/lib/inbox';
 import { cn } from '~/lib/utils';
-
-const QUICK =
-  'rounded p-1 text-[var(--text-muted)] enabled:hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40';
 
 /** Which shelves are open, remembered in this browser. They start closed. */
 const SHELVES_KEY = 'pai.inbox.shelves';
@@ -231,7 +242,7 @@ export function SidebarInbox({ filter }: { filter: string }) {
           openKey={openKey}
           render={list}
         />
-        <Shelf id="done" label="Done" entries={sections.done} openKey={openKey} render={list} />
+        <Shelf id="done" label="Settled" entries={sections.done} openKey={openKey} render={list} />
         <Shelf
           id="archived"
           label="Archived"
@@ -257,10 +268,27 @@ function Heading({ id, children }: { id: string; children: ReactNode }) {
 
 const STATUS_TONE: Record<NonNullable<InboxEntry['status']>, string> = {
   working: 'text-[oklch(0.72_0.13_240)]',
-  failed: 'text-[var(--danger-on-tint)]',
+  failed: 'text-[oklch(0.66_0.2_25)]',
   unread: 'text-[var(--success)]',
   woke: 'text-[var(--warning)]',
 };
+
+const STATUS_ICON: Record<NonNullable<InboxEntry['status']>, LucideIcon> = {
+  working: CircleDashed,
+  failed: CircleAlert,
+  unread: CircleCheck,
+  woke: AlarmClock,
+};
+
+/** "now", "5m", "3h", "2d": as t3code's rows say it. */
+export function compactAgo(at: number, now: number): string {
+  const minutes = Math.floor((now - at) / 60_000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
 
 /** "12s", "4m", "1h 5m": how long the agent has been working, ticking. */
 export function formatElapsed(ms: number): string {
@@ -278,16 +306,6 @@ function Elapsed({ since }: { since: number }) {
     return () => clearInterval(timer);
   }, []);
   return <span className="tabular-nums">{formatElapsed(now - since)}</span>;
-}
-
-const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'short' });
-function ago(at: number, now: number): string {
-  const minutes = Math.round((at - now) / 60_000);
-  if (Math.abs(minutes) < 1) return 'just now';
-  if (Math.abs(minutes) < 60) return relative.format(minutes, 'minute');
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return relative.format(hours, 'hour');
-  return relative.format(Math.round(hours / 24), 'day');
 }
 
 /** A collapsible section. Closed, it still shows the conversation that is open, so it never vanishes from under you. */
@@ -339,11 +357,118 @@ function Shelf({
   );
 }
 
+const ICON_BUTTON =
+  'inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-row-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40';
+
+/** The status in a row's corner: an icon and a word, as t3code's. */
+function StatusBadge({
+  status,
+  workingSince,
+}: {
+  status: NonNullable<InboxEntry['status']>;
+  workingSince?: number;
+}) {
+  const Icon = STATUS_ICON[status];
+  return (
+    <span
+      className={cn('flex shrink-0 items-center gap-1 text-xs font-medium', STATUS_TONE[status])}
+    >
+      <Icon
+        className={cn(
+          'size-4',
+          status === 'working' && 'motion-safe:animate-[spin_3s_linear_infinite]',
+        )}
+        aria-hidden="true"
+      />
+      {STATUS_LABEL[status]}
+      {status === 'working' && workingSince !== undefined && (
+        <span className="font-normal opacity-80">
+          <Elapsed since={workingSince} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+const whenLabel = (until: number) =>
+  new Date(until).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+
+/** Snooze until a time of the person's choosing. */
+function CustomSnooze({
+  onSnooze,
+  onClose,
+}: {
+  onSnooze: (until: number) => void;
+  onClose: () => void;
+}) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const initial = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const local = (date: Date) =>
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const [value, setValue] = useState(local(initial));
+  const until = new Date(value).getTime();
+  const valid = Number.isFinite(until) && until > Date.now();
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Snooze until…</DialogTitle>
+          <DialogDescription>
+            It comes back at this time, or sooner if the agent finishes or fails.
+          </DialogDescription>
+        </DialogHeader>
+        <input
+          type="datetime-local"
+          aria-label="Snooze until"
+          value={value}
+          min={local(new Date())}
+          onChange={(event) => setValue(event.target.value)}
+          className="h-10 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-control)]/60 px-3 text-sm"
+        />
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={!valid} onClick={() => onSnooze(until)}>
+            Snooze
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SnoozeItems({
+  now,
+  onSnooze,
+  onCustom,
+}: {
+  now: number;
+  onSnooze: (until: number) => void;
+  onCustom: () => void;
+}) {
+  return (
+    <>
+      {snoozePresets(new Date(now)).map((preset) => (
+        <DropdownMenuItem
+          key={preset.id}
+          onSelect={() => onSnooze(preset.until)}
+          className="justify-between gap-6"
+        >
+          {preset.label.replace(' morning', '')}
+          <span className="text-xs text-[var(--text-muted)]">{whenLabel(preset.until)}</span>
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onSelect={onCustom}>Custom…</DropdownMenuItem>
+    </>
+  );
+}
+
 function InboxRow({
   entry,
   agent,
   active,
-  showAgent,
   now,
   actions,
   undoable,
@@ -352,7 +477,8 @@ function InboxRow({
   entry: InboxEntry;
   agent: Agent;
   active: boolean;
-  showAgent: boolean;
+  /** Line 1 always names the agent, as t3code's rows name the project. */
+  showAgent?: boolean;
   now: number;
   actions: InboxActions;
   undoable: (message: string, key: string, apply: () => ThreadMeta | undefined) => void;
@@ -361,6 +487,7 @@ function InboxRow({
   const remove = useDeleteThread();
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
+  const [custom, setCustom] = useState(false);
   const confirmButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!confirming) return;
@@ -372,34 +499,18 @@ function InboxRow({
 
   const { key, title, bucket, status, meta } = entry;
   const working = status === 'working';
-  const avatarState =
-    status === 'working'
-      ? 'working'
-      : status === 'failed'
-        ? 'error'
-        : status
-          ? 'attention'
-          : 'idle';
-  const label =
-    bucket === 'snoozed' && meta.snoozedUntil
-      ? untilLabel(meta.snoozedUntil, now)
-      : status
-        ? STATUS_LABEL[status]
-        : '';
+  const pinned = bucket === 'pinned';
+  const away = bucket === 'done' || bucket === 'snoozed' || bucket === 'archived';
 
-  const done = () => {
-    undoable('Marked done', key, () => actions.settle(key));
+  const settle = () => {
+    undoable('Settled', key, () => actions.settle(key));
     advance();
   };
   const pin = () => undoable('Pinned', key, () => actions.pin(key));
   const unpin = () => undoable('Unpinned', key, () => actions.unpin(key));
   const snooze = (until: number) => {
-    const when = new Date(until).toLocaleString([], {
-      weekday: 'short',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-    undoable(`Snoozed until ${when}`, key, () => actions.snooze(key, until));
+    setCustom(false);
+    undoable(`Snoozed until ${whenLabel(until)}`, key, () => actions.snooze(key, until));
     advance();
   };
   const archive = () => {
@@ -419,17 +530,29 @@ function InboxRow({
     if (active) void navigate({ to: '/', search: { agent: entry.agentId } });
   };
 
-  const presets = snoozePresets(new Date(now));
-  const away = bucket === 'done' || bucket === 'snoozed' || bucket === 'archived';
+  // The corner: a status, the time left on a snooze, or when it was settled.
+  const corner =
+    bucket === 'snoozed' && meta.snoozedUntil ? (
+      <span className="shrink-0 text-xs text-[oklch(0.72_0.13_240)] tabular-nums">
+        {untilLabel(meta.snoozedUntil, now)}
+      </span>
+    ) : status ? (
+      <StatusBadge status={status} workingSince={meta.workingSince} />
+    ) : bucket === 'done' && meta.settledAt ? (
+      <span className="shrink-0 text-xs text-[var(--text-muted)] tabular-nums">
+        {compactAgo(meta.settledAt, now)}
+      </span>
+    ) : null;
 
   return (
     <div
       data-focus-row=""
       className={cn(
-        'group relative flex rounded-md transition-[background-color,opacity]',
-        active ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-control)]',
-        // Working rows recede until you look at them, as in t3code.
-        working && !active && 'opacity-70 hover:opacity-100 focus-within:opacity-100',
+        'group relative flex rounded-md motion-safe:animate-[row-in_150ms_ease-out]',
+        'transition-[background-color,opacity] motion-reduce:transition-none',
+        active ? 'bg-[var(--sidebar-row-active)]' : 'hover:bg-[var(--sidebar-row-hover)]',
+        // Working rows recede until looked at, as in t3code.
+        working && !active && 'opacity-70 focus-within:opacity-100 hover:opacity-100',
       )}
     >
       <Link
@@ -438,72 +561,66 @@ function InboxRow({
         aria-current={active ? 'page' : undefined}
         title={title}
         className={cn(
-          'flex min-w-0 flex-1 px-2.5 pointer-coarse:pr-9',
-          away ? 'h-9 items-center gap-2.5' : 'flex-col justify-center gap-1 py-2',
+          'flex min-w-0 flex-1 rounded-md px-2.5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent-bright)]',
+          away ? 'h-9 items-center gap-2.5' : 'h-[4.875rem] flex-col justify-center gap-0.5 py-2',
         )}
       >
-        <span className="flex min-w-0 items-center gap-2">
-          {status || showAgent ? (
-            <AgentAvatar
-              agent={agent}
-              size={16}
-              state={avatarState}
-              frozen={!status}
-              className={cn(away && 'opacity-60')}
-            />
-          ) : null}
-          <span
-            dir="auto"
-            className={cn(
-              'min-w-0 flex-1 truncate text-sm',
-              // Read and idle rows recede; what needs you stands out.
-              status && status !== 'working'
-                ? 'font-medium text-[var(--text-primary)]'
-                : 'text-[var(--text-secondary)]',
-              active && 'font-medium text-[var(--text-primary)]',
-              away && 'text-[var(--text-muted)]',
-            )}
-          >
-            {title}
-          </span>
-          {label && (
+        {away ? (
+          <>
+            <span dir="auto" className="min-w-0 flex-1 truncate text-sm text-[var(--text-muted)]">
+              {title}
+            </span>
+            <span className="transition-opacity group-focus-within:opacity-0 group-hover:opacity-0">
+              {corner}
+            </span>
+          </>
+        ) : (
+          <>
+            {/* Line 1: whose conversation it is, and what it needs. */}
+            <span className="flex h-5 min-w-0 items-center gap-1.5">
+              {/* Still, like t3code's project icon; only work moves it. The corner says the rest. */}
+              <AgentAvatar
+                agent={agent}
+                size={16}
+                state={working ? 'working' : 'idle'}
+                frozen={!working}
+              />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text-secondary)]">
+                {agent.name}
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5 transition-opacity group-focus-within:opacity-0 group-hover:opacity-0">
+                {pinned && <Pin className="size-3 text-[var(--text-muted)]" aria-label="Pinned" />}
+                {corner}
+              </span>
+            </span>
+            {/* Line 2: the title, brighter when there is something new in it. */}
             <span
+              dir="auto"
               className={cn(
-                'flex shrink-0 items-center gap-1 text-xs font-medium transition-opacity group-focus-within:opacity-0 group-hover:opacity-0',
-                status ? STATUS_TONE[status] : 'text-[var(--text-muted)]',
+                'min-w-0 truncate text-sm',
+                status === 'unread' || status === 'woke' || status === 'failed' || active
+                  ? 'font-medium text-[var(--text-primary)]'
+                  : 'text-[var(--text-primary)]/90',
               )}
             >
-              <span className="sr-only">, </span>
-              {label}
-              {working && meta.workingSince !== undefined && <Elapsed since={meta.workingSince} />}
+              {title}
             </span>
-          )}
-        </span>
-        {!away && (
-          <span
-            className={cn(
-              'truncate text-xs text-[var(--text-muted)]',
-              (status || showAgent) && 'pl-6',
-            )}
-          >
-            {[showAgent ? agent.name : null, ago(activityAt(meta, entry), now)]
-              .filter(Boolean)
-              .join(' · ')}
-          </span>
+            {/* Line 3: when. */}
+            <span className="truncate text-xs text-[var(--text-muted)] tabular-nums">
+              {compactAgo(activityAt(meta, entry), now)}
+            </span>
+          </>
         )}
       </Link>
 
       <div
         className={cn(
-          'pointer-events-none absolute right-1 flex translate-x-3 items-center gap-0.5 rounded-md bg-inherit pl-2 opacity-0',
-          away ? 'top-1/2 -translate-y-1/2' : 'top-1.5',
-          'transition-[transform,opacity] duration-200 ease-out',
-          'group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100',
-          'group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100',
-          confirming && 'pointer-events-auto translate-x-0 opacity-100',
-          // Touch screens have no hover: the "…" menu is always there.
-          'pointer-coarse:pointer-events-auto pointer-coarse:translate-x-0 pointer-coarse:opacity-100',
-          'motion-reduce:transform-none motion-reduce:transition-none',
+          'pointer-events-none absolute right-1.5 flex items-center gap-0.5 opacity-0 transition-opacity motion-reduce:transition-none',
+          away ? 'top-1/2 -translate-y-1/2' : 'top-2',
+          'group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100',
+          confirming && 'pointer-events-auto opacity-100',
+          // Touch screens have no hover: the actions are always there.
+          'pointer-coarse:pointer-events-auto pointer-coarse:opacity-100',
         )}
       >
         {confirming ? (
@@ -512,113 +629,116 @@ function InboxRow({
             type="button"
             aria-label={`Confirm delete conversation: ${title}`}
             onClick={del}
-            className="rounded bg-[var(--danger)]/20 px-2 py-0.5 text-xs font-medium text-[var(--danger-on-tint)] hover:bg-[var(--danger)]/30"
+            className="rounded-md bg-[var(--danger)]/20 px-2 py-0.5 text-xs font-medium text-[var(--danger-on-tint)] hover:bg-[var(--danger)]/30"
           >
             Delete
           </button>
         ) : (
           <>
-            <span className="flex items-center gap-0.5 pointer-coarse:hidden">
-              {away ? (
+            {bucket === 'snoozed' ? (
+              <button
+                type="button"
+                aria-label={`Wake now: ${title}`}
+                title="Wake now"
+                onClick={backToInbox}
+                className={ICON_BUTTON}
+              >
+                <AlarmClockOff className="size-3" />
+              </button>
+            ) : away ? (
+              <button
+                type="button"
+                aria-label={`${bucket === 'archived' ? 'Restore' : 'Un-settle'}: ${title}`}
+                title={bucket === 'archived' ? 'Restore' : 'Un-settle'}
+                onClick={backToInbox}
+                className={ICON_BUTTON}
+              >
+                <Undo2 className="size-3.5" />
+              </button>
+            ) : (
+              <>
                 <button
                   type="button"
-                  aria-label={`Move back to inbox: ${title}`}
-                  title="Move back to inbox"
-                  onClick={backToInbox}
-                  className={QUICK}
+                  aria-label={`${pinned ? 'Unpin' : 'Pin'}: ${title}`}
+                  title={pinned ? 'Unpin' : 'Pin'}
+                  onClick={pinned ? unpin : pin}
+                  className={cn(ICON_BUTTON, 'pointer-coarse:hidden')}
                 >
-                  {bucket === 'snoozed' ? (
-                    <AlarmClockOff className="size-3.5" />
-                  ) : (
-                    <Undo2 className="size-3.5" />
-                  )}
+                  {pinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
                 </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    aria-label={`Mark done: ${title}`}
-                    title={working ? 'Working: stop it first' : 'Mark done'}
-                    disabled={working}
-                    onClick={done}
-                    className={QUICK}
-                  >
-                    <Check className="size-3.5" />
-                  </button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={`Snooze: ${title}`}
-                        title="Snooze"
-                        className={QUICK}
-                      >
-                        <AlarmClock className="size-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-44">
-                      {presets.map((preset) => (
-                        <DropdownMenuItem key={preset.id} onSelect={() => snooze(preset.until)}>
-                          {preset.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <button
-                    type="button"
-                    aria-label={`${bucket === 'pinned' ? 'Unpin' : 'Pin'} conversation: ${title}`}
-                    title={bucket === 'pinned' ? 'Unpin' : 'Pin'}
-                    onClick={bucket === 'pinned' ? unpin : pin}
-                    className={QUICK}
-                  >
-                    {bucket === 'pinned' ? (
-                      <PinOff className="size-3.5" />
-                    ) : (
-                      <Pin className="size-3.5" />
-                    )}
-                  </button>
-                </>
-              )}
-            </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Snooze: ${title}`}
+                      title="Snooze"
+                      className={cn(ICON_BUTTON, 'pointer-coarse:hidden')}
+                    >
+                      <Clock className="size-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <SnoozeItems now={now} onSnooze={snooze} onCustom={() => setCustom(true)} />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <button
+                  type="button"
+                  aria-label={`Settle: ${title}`}
+                  title={working ? 'Working: stop it first' : 'Settle'}
+                  disabled={working}
+                  onClick={settle}
+                  className={cn(ICON_BUTTON, 'pointer-coarse:hidden')}
+                >
+                  <Check className="size-3.5" />
+                  Settle
+                </button>
+              </>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
                   aria-label={`More actions: ${title}`}
                   title="More"
-                  className={QUICK}
+                  className={ICON_BUTTON}
                 >
                   <Ellipsis className="size-3.5" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-56">
                 {away ? (
                   <DropdownMenuItem onSelect={backToInbox}>
-                    <Undo2 />
-                    Move back to inbox
+                    {bucket === 'archived' ? (
+                      <ArchiveRestore />
+                    ) : bucket === 'snoozed' ? (
+                      <AlarmClockOff />
+                    ) : (
+                      <Undo2 />
+                    )}
+                    {bucket === 'archived'
+                      ? 'Restore'
+                      : bucket === 'snoozed'
+                        ? 'Wake now'
+                        : 'Un-settle'}
                   </DropdownMenuItem>
                 ) : (
                   <>
-                    <DropdownMenuItem disabled={working} onSelect={done}>
+                    <DropdownMenuItem disabled={working} onSelect={settle}>
                       <Check />
-                      Mark done
+                      Settle
                     </DropdownMenuItem>
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger>
-                        <AlarmClock />
+                        <Clock />
                         Snooze
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent>
-                        {presets.map((preset) => (
-                          <DropdownMenuItem key={preset.id} onSelect={() => snooze(preset.until)}>
-                            {preset.label}
-                          </DropdownMenuItem>
-                        ))}
+                      <DropdownMenuSubContent className="w-60">
+                        <SnoozeItems now={now} onSnooze={snooze} onCustom={() => setCustom(true)} />
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
-                    <DropdownMenuItem onSelect={bucket === 'pinned' ? unpin : pin}>
-                      {bucket === 'pinned' ? <PinOff /> : <Pin />}
-                      {bucket === 'pinned' ? 'Unpin' : 'Pin'}
+                    <DropdownMenuItem onSelect={pinned ? unpin : pin}>
+                      {pinned ? <PinOff /> : <Pin />}
+                      {pinned ? 'Unpin' : 'Pin'}
                     </DropdownMenuItem>
                   </>
                 )}
@@ -628,12 +748,7 @@ function InboxRow({
                     Mark unread
                   </DropdownMenuItem>
                 )}
-                {bucket === 'archived' ? (
-                  <DropdownMenuItem onSelect={backToInbox}>
-                    <ArchiveRestore />
-                    Restore
-                  </DropdownMenuItem>
-                ) : (
+                {bucket !== 'archived' && (
                   <DropdownMenuItem disabled={working} onSelect={archive}>
                     <Archive />
                     Archive
@@ -649,6 +764,7 @@ function InboxRow({
           </>
         )}
       </div>
+      {custom && <CustomSnooze onSnooze={snooze} onClose={() => setCustom(false)} />}
     </div>
   );
 }

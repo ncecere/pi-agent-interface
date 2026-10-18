@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The inbox looks and reads like t3code's**: three-line rows (agent, title, time), status in the corner with an
+  icon (Working with a timer, Done, Failed, Woke), a pin on pinned rows, compact times (now, 5m, 3h, 2d), soft
+  hover and active tints, and hover actions Pin, Snooze and Settle. "Done" now means a finished reply you have not
+  seen; conversations you are finished with are **Settled**. Snoozing shows each wake time and offers "Custom…".
 - **Agents.** Admin → Agents sets the default model (instead of `AGENT_MODEL`, which remains the fallback), how
   many agents each person may make (default 5), whether people choose the model, and the templates allowed.
   **Provided agents**: administrators add agents everyone gets, each person their own private copy (the built-in
