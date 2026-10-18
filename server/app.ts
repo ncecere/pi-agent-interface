@@ -14,7 +14,7 @@ import {
   parseProvided,
 } from './agent-settings.ts';
 import { type Branding, defaultBranding, parseBranding } from './branding.ts';
-import type { Config } from './config.ts';
+import { type Config, DEFAULT_DEV_ACCOUNTS } from './config.ts';
 import { Connect, ConnectError, NotConnected } from './connect.ts';
 import { AgentProblem, WorkspaceAgents } from './connect-agents.ts';
 import { EventsHub } from './events-hub.ts';
@@ -45,12 +45,8 @@ import {
 } from './store.ts';
 import { lastDays, sumUsage, usageByAgent, usageByDay, usageByPerson } from './usage.ts';
 
-/** Fixed development accounts (DEV_AUTH, loopback only). */
-export const DEV_ACCOUNTS = [
-  { id: 'tim', name: 'Tim', email: 'tim@example.test' },
-  { id: 'bob', name: 'Bob', email: 'bob@example.test' },
-  { id: 'sally', name: 'Sally', email: 'sally@example.test' },
-] as const;
+/** The development accounts (DEV_AUTH, loopback only) unless DEV_ACCOUNTS sets others. */
+export const DEV_ACCOUNTS = DEFAULT_DEV_ACCOUNTS;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const THREAD_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -122,6 +118,7 @@ export function createApp(
   deps: { store: Store; platform?: Platform; events?: EventsHub; connect?: Connect },
 ) {
   const { store } = deps;
+  const devAccounts = config.devAccounts ?? DEV_ACCOUNTS;
   const platform = deps.platform ?? new Platform(config);
   const events = deps.events ?? new EventsHub(platform);
   /** Connect mode: people's own platform accounts (connect.ts). Otherwise the team service account. */
@@ -308,7 +305,7 @@ export function createApp(
       data: {
         oidcEnabled: config.oidc !== null,
         devAuthEnabled: config.devAuth,
-        devAccounts: config.devAuth ? DEV_ACCOUNTS : [],
+        devAccounts: config.devAuth ? devAccounts : [],
         instance: {
           name: brand.name,
           logoUrl: brand.logoUrl,
@@ -376,7 +373,7 @@ export function createApp(
     if (!config.devAuth) return fail(c, 404, 'not_found', 'Not found');
     if (!sameOrigin(c)) return fail(c, 403, 'origin_denied', 'Development sign-in is local-only');
     const body = (await c.req.json().catch(() => ({}))) as { account?: unknown };
-    const account = DEV_ACCOUNTS.find((candidate) => candidate.id === body.account);
+    const account = devAccounts.find((candidate) => candidate.id === body.account);
     if (!account) return fail(c, 400, 'unknown_account', 'Unknown development account');
     const person = await store.signIn(
       { id: userIdFor('dev', account.id), name: account.name, email: account.email },

@@ -70,6 +70,7 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `SESSION_SECRET` | 32+ characters (`openssl rand -base64 48`). Encrypts sessions; changing it signs everyone out. |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Single sign-on. All three. |
 | `DEV_AUTH` | `true` enables the development accounts tim, bob and sally. Refused unless `APP_URL` is loopback. |
+| `DEV_ACCOUNTS` | With `DEV_AUTH=true`: the development accounts to offer instead of tim, bob and sally, as a JSON array of `{"id", "name", "email"}` (ids unique: letters, digits, dots, dashes, underscores). Ignored while `DEV_AUTH` is off. |
 | `HOST`, `PORT` | Where to listen (default `127.0.0.1:5178`; the container uses `0.0.0.0:8080`). |
 | `SESSION_TTL_HOURS` | Default 168. |
 | `DISABLED_FEATURES` | Optional features to turn off for good, comma-separated (e.g. `usage`). See below. |

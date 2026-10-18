@@ -1,6 +1,58 @@
 import { existsSync } from 'node:fs';
 import { FEATURE_IDS, isFeatureId } from './features.ts';
 
+/** A development account: signs in with no password (DEV_AUTH, loopback only). */
+export interface DevAccount {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/** The development accounts when DEV_ACCOUNTS is not set. */
+export const DEFAULT_DEV_ACCOUNTS: readonly DevAccount[] = [
+  { id: 'tim', name: 'Tim', email: 'tim@example.test' },
+  { id: 'bob', name: 'Bob', email: 'bob@example.test' },
+  { id: 'sally', name: 'Sally', email: 'sally@example.test' },
+];
+
+/**
+ * DEV_ACCOUNTS: a JSON array of `{id, name, email}`. Problems are appended to
+ * `problems`; an unusable value yields the default accounts.
+ */
+export function parseDevAccounts(text: string, problems: string[]): readonly DevAccount[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    problems.push('DEV_ACCOUNTS is not valid JSON (an array of {id, name, email})');
+    return DEFAULT_DEV_ACCOUNTS;
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    problems.push(
+      'DEV_ACCOUNTS must be a JSON array of {id, name, email}, with at least one account',
+    );
+    return DEFAULT_DEV_ACCOUNTS;
+  }
+  const accounts: DevAccount[] = [];
+  const seen = new Set<string>();
+  value.forEach((item, index) => {
+    const entry = (item ?? {}) as Record<string, unknown>;
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    const email = typeof entry.email === 'string' ? entry.email.trim() : '';
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(id))
+      problems.push(
+        `DEV_ACCOUNTS[${index}]: id is 1 to 64 letters, digits, dots, dashes or underscores`,
+      );
+    else if (seen.has(id)) problems.push(`DEV_ACCOUNTS[${index}]: the id "${id}" is used twice`);
+    if (!name) problems.push(`DEV_ACCOUNTS[${index}]: name is required`);
+    if (!email) problems.push(`DEV_ACCOUNTS[${index}]: email is required`);
+    seen.add(id);
+    accounts.push({ id, name, email });
+  });
+  return accounts;
+}
+
 /**
  * The chat server's settings, from the environment (and `.env.local` in
  * development). Read once at start; anything missing or unsafe stops the
@@ -51,6 +103,8 @@ export interface Config {
   oidc: { issuer: URL; clientId: string; clientSecret: string; scopes: string } | null;
   /** Fixed development accounts with no password. Only with a loopback APP_URL. */
   devAuth: boolean;
+  /** The accounts DEV_AUTH offers (DEV_ACCOUNTS); only read while `devAuth` is on. Default: tim, bob and sally. */
+  devAccounts?: readonly DevAccount[];
   /** Serve the built web app from here (production). */
   staticDir: string | null;
   /** The chat app's own Postgres: people, roles, settings, preferences. */
@@ -152,6 +206,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sessionTtlSeconds: Number.isFinite(ttlHours) && ttlHours > 0 ? ttlHours * 3600 : 168 * 3600,
     oidc,
     devAuth,
+    ...(devAuth && env.DEV_ACCOUNTS?.trim()
+      ? { devAccounts: parseDevAccounts(env.DEV_ACCOUNTS, problems) }
+      : {}),
     staticDir: env.STATIC_DIR?.trim() || null,
     databaseUrl: required('DATABASE_URL'),
     initialAdminEmail: env.INITIAL_ADMIN_EMAIL?.trim() || null,
