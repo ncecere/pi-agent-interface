@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   redirect,
 } from '@tanstack/react-router';
@@ -39,6 +40,13 @@ const signInRoute = createRoute({
       throw redirect({ href: next?.startsWith('/') && !next.startsWith('//') ? next : '/' });
     }
   },
+});
+
+/** A review page for the avatar styles; public, loaded only when opened. */
+const avatarsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/avatars',
+  component: lazyRouteComponent(() => import('~/routes/demo/avatars'), 'AvatarsDemoPage'),
 });
 
 const authenticatedRoute = createRoute({
@@ -89,6 +97,7 @@ const threadRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
+  avatarsRoute,
   authenticatedRoute.addChildren([chatHomeRoute, agentRoute, threadRoute]),
 ]);
 
