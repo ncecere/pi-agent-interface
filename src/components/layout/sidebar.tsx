@@ -1,11 +1,19 @@
 import { Link, useNavigate } from '@tanstack/react-router';
 import { PanelLeft, Search } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Wordmark } from '~/components/brand/wordmark';
 import { SidebarInbox } from '~/components/layout/sidebar-inbox';
 import { UserMenu } from '~/components/layout/user-menu';
 import { Button } from '~/components/ui/button';
 import { useAuthConfig } from '~/hooks/use-session';
+import { clampSidebar, SIDEBAR_MIN, sidebarMax, useSidebarWidth } from '~/hooks/use-sidebar-width';
 import { focusComposerSoon } from '~/lib/focus-after-navigation';
 import { ariaKeyShortcuts } from '~/lib/keyboard-shortcuts';
 import { loopTab } from '~/lib/tab-loop';
@@ -17,7 +25,76 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
+/**
+ * The sidebar's right edge: drag to resize, double-click to reset, or focus it
+ * and use the arrow keys. Desktop only; on a phone the sidebar is a drawer.
+ */
+function ResizeRail({
+  width,
+  setWidth,
+  reset,
+  onDragging,
+}: {
+  width: number;
+  setWidth: (width: number, persist?: boolean) => void;
+  reset: () => void;
+  onDragging: (dragging: boolean) => void;
+}) {
+  const start = useRef<{ x: number; width: number } | null>(null);
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    start.current = { x: event.clientX, width };
+    onDragging(true);
+  };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (start.current) setWidth(start.current.width + event.clientX - start.current.x, false);
+  };
+  const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (!start.current) return;
+    setWidth(start.current.width + event.clientX - start.current.x);
+    start.current = null;
+    onDragging(false);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 64 : 16;
+    if (event.key === 'ArrowLeft') setWidth(width - step);
+    else if (event.key === 'ArrowRight') setWidth(width + step);
+    else if (event.key === 'Home') setWidth(SIDEBAR_MIN);
+    else if (event.key === 'End') setWidth(sidebarMax());
+    else return;
+    event.preventDefault();
+  };
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a focusable window splitter is role="separator" (WAI-ARIA)
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      aria-valuenow={width}
+      aria-valuemin={SIDEBAR_MIN}
+      aria-valuemax={clampSidebar(Number.POSITIVE_INFINITY)}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onDoubleClick={reset}
+      onKeyDown={onKeyDown}
+      className="group absolute inset-y-0 -right-2 z-10 hidden w-4 cursor-col-resize touch-none outline-none lg:block"
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-[var(--border-strong)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:bg-[var(--accent-bright)] group-focus-visible:opacity-100"
+      />
+    </div>
+  );
+}
+
 export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
+  const { width, setWidth, reset } = useSidebarWidth();
+  const [dragging, setDragging] = useState(false);
   const { data: config } = useAuthConfig();
   const instance = config?.instance;
   const [search, setSearch] = useState('');
@@ -48,9 +125,13 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
       onKeyDown={mobile && open ? loopTab : undefined}
       className={cn(
         'fixed inset-y-0 left-0 z-50 flex h-dvh w-full shrink-0 flex-col bg-[var(--bg-app)] bg-[image:var(--sidebar-gradient)]',
-        'transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-64 lg:transition-[margin]',
-        open ? 'translate-x-0 lg:ml-0' : '-translate-x-full lg:-ml-64 lg:translate-x-0',
+        'transition-transform duration-200 ease-out lg:relative lg:z-auto lg:w-[var(--sidebar-width)]',
+        !dragging && 'lg:transition-[margin]',
+        open
+          ? 'translate-x-0 lg:ml-0'
+          : '-translate-x-full lg:-ml-[var(--sidebar-width)] lg:translate-x-0',
       )}
+      style={{ '--sidebar-width': `${width}px` } as CSSProperties}
     >
       <div className="flex h-14 items-center px-3">
         <Button
@@ -127,6 +208,9 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
         </Button>
         <UserMenu compact />
       </div>
+      {open && !mobile && (
+        <ResizeRail width={width} setWidth={setWidth} reset={reset} onDragging={setDragging} />
+      )}
     </aside>
   );
 }

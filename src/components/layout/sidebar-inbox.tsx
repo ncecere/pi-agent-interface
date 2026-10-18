@@ -32,6 +32,7 @@ import { useDeleteThread } from '~/hooks/use-agents';
 import { type InboxActions, useInbox, useInboxActions } from '~/hooks/use-inbox';
 import { keepFocusWhenRemoved } from '~/lib/focus-return';
 import {
+  activityAt,
   type InboxEntry,
   type Sections,
   STATUS_LABEL,
@@ -167,13 +168,13 @@ export function SidebarInbox({ filter }: { filter: string }) {
   };
   const list = (entries: InboxEntry[], label: string) =>
     entries.length > 0 && (
-      <ul aria-label={label} className="flex flex-col gap-0.5">
+      <ul aria-label={label} className="flex flex-col gap-px">
         {entries.map(row)}
       </ul>
     );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {multi && (
         <fieldset className="m-0 flex flex-wrap gap-1 border-0 p-0">
           <legend className="sr-only">Show conversations with</legend>
@@ -245,10 +246,48 @@ export function SidebarInbox({ filter }: { filter: string }) {
 
 function Heading({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <h2 id={id} className="px-2.5 pb-1 text-[0.6875rem] font-semibold text-[var(--accent-bright)]">
-      {children}
-    </h2>
+    <div className="flex h-8 items-center gap-2 px-2">
+      <h2 id={id} className="text-xs font-medium text-[var(--text-muted)]">
+        {children}
+      </h2>
+      <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
+    </div>
   );
+}
+
+const STATUS_TONE: Record<NonNullable<InboxEntry['status']>, string> = {
+  working: 'text-[oklch(0.72_0.13_240)]',
+  failed: 'text-[var(--danger-on-tint)]',
+  unread: 'text-[var(--success)]',
+  woke: 'text-[var(--warning)]',
+};
+
+/** "12s", "4m", "1h 5m": how long the agent has been working, ticking. */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <span className="tabular-nums">{formatElapsed(now - since)}</span>;
+}
+
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'short' });
+function ago(at: number, now: number): string {
+  const minutes = Math.round((at - now) / 60_000);
+  if (Math.abs(minutes) < 1) return 'just now';
+  if (Math.abs(minutes) < 60) return relative.format(minutes, 'minute');
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return relative.format(hours, 'hour');
+  return relative.format(Math.round(hours / 24), 'day');
 }
 
 /** A collapsible section. Closed, it still shows the conversation that is open, so it never vanishes from under you. */
@@ -277,7 +316,7 @@ function Shelf({
           aria-expanded={open}
           aria-controls={panel}
           onClick={() => setOpen(!open)}
-          className="flex min-h-6 w-full items-center gap-1 rounded px-2.5 text-left text-[0.6875rem] font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)]"
         >
           <ChevronRight
             className={cn(
@@ -286,8 +325,11 @@ function Shelf({
             )}
             aria-hidden="true"
           />
-          {label}
-          <span className="font-normal">{entries.length}</span>
+          <span>
+            {label}
+            {!open && <span className="font-normal"> ({entries.length})</span>}
+          </span>
+          <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-subtle)]" />
         </button>
       </h2>
       <div id={panel} className="mt-0.5">
@@ -384,8 +426,10 @@ function InboxRow({
     <div
       data-focus-row=""
       className={cn(
-        'group relative flex items-center rounded-lg transition-colors',
+        'group relative flex rounded-md transition-[background-color,opacity]',
         active ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-control)]',
+        // Working rows recede until you look at them, as in t3code.
+        working && !active && 'opacity-70 hover:opacity-100 focus-within:opacity-100',
       )}
     >
       <Link
@@ -394,46 +438,65 @@ function InboxRow({
         aria-current={active ? 'page' : undefined}
         title={title}
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-sm text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] pointer-coarse:pr-9',
+          'flex min-w-0 flex-1 px-2.5 pointer-coarse:pr-9',
+          away ? 'h-9 items-center gap-2.5' : 'flex-col justify-center gap-1 py-2',
         )}
       >
-        {status || showAgent ? (
-          <AgentAvatar
-            agent={agent}
-            size={18}
-            state={avatarState}
-            frozen={!status}
-            className={cn(away && 'opacity-60')}
-          />
-        ) : (
-          <span className="size-[18px] shrink-0" aria-hidden="true" />
-        )}
-        <span
-          dir="auto"
-          className={cn(
-            'min-w-0 flex-1 truncate',
-            status && 'font-medium text-[var(--text-primary)]',
-            away && 'opacity-70',
-          )}
-        >
-          {title}
-        </span>
-        {label && (
+        <span className="flex min-w-0 items-center gap-2">
+          {status || showAgent ? (
+            <AgentAvatar
+              agent={agent}
+              size={16}
+              state={avatarState}
+              frozen={!status}
+              className={cn(away && 'opacity-60')}
+            />
+          ) : null}
           <span
+            dir="auto"
             className={cn(
-              'shrink-0 text-[0.6875rem] text-[var(--text-muted)] transition-opacity group-focus-within:opacity-0 group-hover:opacity-0',
-              status === 'failed' && 'text-[var(--danger-on-tint)]',
+              'min-w-0 flex-1 truncate text-sm',
+              // Read and idle rows recede; what needs you stands out.
+              status && status !== 'working'
+                ? 'font-medium text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)]',
+              active && 'font-medium text-[var(--text-primary)]',
+              away && 'text-[var(--text-muted)]',
             )}
           >
-            <span className="sr-only">, </span>
-            {label}
+            {title}
+          </span>
+          {label && (
+            <span
+              className={cn(
+                'flex shrink-0 items-center gap-1 text-xs font-medium transition-opacity group-focus-within:opacity-0 group-hover:opacity-0',
+                status ? STATUS_TONE[status] : 'text-[var(--text-muted)]',
+              )}
+            >
+              <span className="sr-only">, </span>
+              {label}
+              {working && meta.workingSince !== undefined && <Elapsed since={meta.workingSince} />}
+            </span>
+          )}
+        </span>
+        {!away && (
+          <span
+            className={cn(
+              'truncate text-xs text-[var(--text-muted)]',
+              (status || showAgent) && 'pl-6',
+            )}
+          >
+            {[showAgent ? agent.name : null, ago(activityAt(meta, entry), now)]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         )}
       </Link>
 
       <div
         className={cn(
-          'pointer-events-none absolute right-1 flex translate-x-3 items-center gap-0.5 rounded-lg bg-inherit pl-2 opacity-0',
+          'pointer-events-none absolute right-1 flex translate-x-3 items-center gap-0.5 rounded-md bg-inherit pl-2 opacity-0',
+          away ? 'top-1/2 -translate-y-1/2' : 'top-1.5',
           'transition-[transform,opacity] duration-200 ease-out',
           'group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100',
           'group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100',

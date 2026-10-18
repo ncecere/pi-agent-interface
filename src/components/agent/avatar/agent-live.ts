@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from 'react';
+import { useInboxMetas } from '~/hooks/use-inbox';
+import { isWorking } from '~/lib/inbox';
 import { type AvatarSignals, type AvatarState, avatarStateOf, useDoneFlash } from './states';
 
 /**
@@ -79,5 +81,15 @@ export function useAgentAvatarState(agent: {
   running: boolean;
 }): AvatarState {
   const state = useAgentLive(agent.id);
-  return useDoneFlash(avatarStateOf(signalsFor(agent, state)));
+  // A conversation left while its reply is still being written keeps the agent
+  // "working" (the inbox follows it), so leaving is not mistaken for finishing.
+  const metas = useInboxMetas();
+  const prefix = `${agent.id}/`;
+  const now = Date.now();
+  const elsewhere = Object.entries(metas).some(
+    ([key, meta]) => key.startsWith(prefix) && isWorking(meta, now),
+  );
+  const signals = signalsFor(agent, state);
+  if (elsewhere && !signals.busy) Object.assign(signals, { busy: true, running: true });
+  return useDoneFlash(avatarStateOf(signals));
 }
