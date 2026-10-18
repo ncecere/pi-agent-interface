@@ -7,6 +7,7 @@ import { Composer } from '~/components/chat/composer';
 import { preloadMarkdownRenderer, useMarkdownRendererReady } from '~/components/chat/markdown';
 import { textOf } from '~/components/chat/message-content';
 import { MessageList } from '~/components/chat/message-list';
+import { NoReplyNote } from '~/components/chat/reply-outcome-note';
 import { Button } from '~/components/ui/button';
 import { FullPageSpinner } from '~/components/ui/spinner';
 import { UnavailableState } from '~/components/ui/unavailable-state';
@@ -16,6 +17,9 @@ import { useChatScroll } from '~/hooks/use-chat-scroll';
 import { isPendingMessage } from '~/lib/chat-view';
 import { usePageTitle } from '~/lib/document-title';
 import { rememberAgent } from '~/routes/chat/home';
+
+/** How long an idle agent leaves the person's message unanswered before the page says so. */
+const DROPPED_NOTICE_MS = 4_000;
 
 export function ChatThreadPage({ agentId, threadId }: { agentId: string; threadId: string }) {
   // Everything here belongs to one conversation: a new one starts afresh.
@@ -85,6 +89,18 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
   const retry = useCallback(() => {
     if (lastQuestion) setDraft(textOf(lastQuestion));
   }, [lastQuestion, setDraft]);
+
+  // The agent is idle and the person spoke last: the turn was dropped. Said
+  // after a moment, so a turn just starting never flashes it.
+  const lastMessage = messages.at(-1);
+  const unanswered =
+    shown && !working && lastMessage?.role === 'user' && !isPendingMessage(lastMessage);
+  const [dropped, setDropped] = useState(false);
+  useEffect(() => {
+    if (!unanswered) return setDropped(false);
+    const timer = setTimeout(() => setDropped(true), DROPPED_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [unanswered]);
 
   if (session.connection === 'not-found') {
     return (
@@ -163,8 +179,11 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
                 onRetry={retry}
                 scrollRef={scroll.scrollRef}
               />
-              {(session.sendError || note) && (
+              {(session.sendError || note || dropped) && (
                 <div className="mx-auto max-w-[42rem] space-y-2 px-4 pb-4">
+                  {dropped && (
+                    <NoReplyNote agentName={agent?.name ?? 'The agent'} onRetry={retry} />
+                  )}
                   {session.sendError && (
                     <p
                       role="alert"

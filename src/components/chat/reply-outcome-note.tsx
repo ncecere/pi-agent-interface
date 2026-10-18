@@ -42,3 +42,28 @@ export function ReplyFailureNote({
     </div>
   );
 }
+
+/**
+ * Under the person's last message when the agent is idle and never answered
+ * it: the platform can drop a turn without writing a reply or an error. Said,
+ * so the question does not hang there as if an answer were on its way.
+ */
+export function NoReplyNote({ agentName, onRetry }: { agentName: string; onRetry?: () => void }) {
+  return (
+    <div
+      role="note"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-[var(--warning)]/12 px-4 py-2.5 text-sm text-[var(--text-secondary)]"
+    >
+      <p className="min-w-0 flex-1">
+        <span className="font-medium text-[var(--text-primary)]">No reply.</span> {agentName}{' '}
+        stopped without answering your last message.
+      </p>
+      {onRetry && (
+        <Button variant="secondary" size="sm" onClick={onRetry}>
+          <RefreshCw aria-hidden="true" />
+          Try again
+        </Button>
+      )}
+    </div>
+  );
+}
