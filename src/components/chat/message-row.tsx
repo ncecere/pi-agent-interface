@@ -1,6 +1,8 @@
 import type { UIMessage } from 'ai';
 import { Clock } from 'lucide-react';
 import { memo } from 'react';
+import type { Agent } from '~/api/client';
+import { AgentAvatar } from '~/components/agent/agent-avatar';
 import { MARKDOWN_PROSE, Markdown } from '~/components/chat/markdown';
 import { MessageActions } from '~/components/chat/message-actions';
 import {
@@ -27,6 +29,10 @@ interface MessageRowProps {
   onRetry?: () => void;
   /** Its place, when another message opens with the same words: "reply 3". */
   position?: string | null;
+  /** Whose reply it is, for the avatar beside it. */
+  agent?: Pick<Agent, 'id' | 'enabled' | 'running'>;
+  /** The newest reply: its avatar shows what the agent is doing; earlier ones rest, still. */
+  latest?: boolean;
 }
 
 /**
@@ -56,6 +62,8 @@ export const MessageRow = memo(function MessageRow({
   streaming,
   onRetry,
   position,
+  agent,
+  latest = false,
 }: MessageRowProps) {
   const text = textOf(message);
   const excerpt = messageExcerptOf(message) ?? undefined;
@@ -101,25 +109,43 @@ export const MessageRow = memo(function MessageRow({
 
   return (
     <article
-      className="group flex flex-col"
+      className="group flex gap-3"
       aria-label="Agent message"
       data-excerpt={excerpt}
       data-position={place}
       data-message-id={message.id}
     >
-      <ReplyBody key={message.id} message={message} text={text} streaming={streaming} />
-      {interruption && (
-        <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
-          {interruption}
-        </p>
+      {agent && (
+        <div className="mt-px shrink-0">
+          {latest ? (
+            <AgentAvatar agent={agent} size={28} />
+          ) : (
+            <AgentAvatar
+              agent={agent}
+              size={28}
+              state={failureOf(message) ? 'error' : 'idle'}
+              frozen
+            />
+          )}
+        </div>
       )}
-      {failure && <ReplyFailureNote reason={failure} onRetry={onRetry} latest={Boolean(onRetry)} />}
-      {stopped && (
-        <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
-          {stoppedNoteOf(message, text)}
-        </p>
-      )}
-      {!streaming && <MessageActions text={text} position={place} onRetry={onRetry} />}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <ReplyBody key={message.id} message={message} text={text} streaming={streaming} />
+        {interruption && (
+          <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
+            {interruption}
+          </p>
+        )}
+        {failure && (
+          <ReplyFailureNote reason={failure} onRetry={onRetry} latest={Boolean(onRetry)} />
+        )}
+        {stopped && (
+          <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
+            {stoppedNoteOf(message, text)}
+          </p>
+        )}
+        {!streaming && <MessageActions text={text} position={place} onRetry={onRetry} />}
+      </div>
     </article>
   );
 });

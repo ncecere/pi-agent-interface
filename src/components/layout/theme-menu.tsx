@@ -1,4 +1,6 @@
 import { Monitor, Moon, Settings2, Sun } from 'lucide-react';
+import { AVATAR_STYLES, type AvatarStyle } from '~/components/agent/avatar/avatar-art';
+import { setAvatarStyle, useAvatarStyle } from '~/components/agent/avatar/avatar-prefs';
 import { Button } from '~/components/ui/button';
 import {
   DropdownMenu,
@@ -20,6 +22,7 @@ const THEME_OPTIONS = [
 
 export function ThemeMenu() {
   const { theme, setTheme, codeWrap, setCodeWrap, invertSend, setInvertSend } = useTheme();
+  const avatarStyle = useAvatarStyle();
 
   return (
     <DropdownMenu>
@@ -39,6 +42,20 @@ export function ThemeMenu() {
             <DropdownMenuRadioItem key={option.value} value={option.value}>
               <option.icon />
               <span className="flex-1">{option.label}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuLabel>Avatar</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={avatarStyle}
+          onValueChange={(value) => setAvatarStyle(value as AvatarStyle)}
+        >
+          {AVATAR_STYLES.map((style) => (
+            <DropdownMenuRadioItem key={style.id} value={style.id}>
+              {style.name}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

@@ -138,7 +138,7 @@ function AgentItem({
           title={`${agent.name} · ${agentStatusLabel(agent)}`}
           className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 pl-1 text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
         >
-          <AgentAvatar agent={agent} size="sm" showStatus />
+          <AgentAvatar agent={agent} size="sm" />
           <span className="min-w-0 truncate">{agent.name}</span>
         </Link>
         <button

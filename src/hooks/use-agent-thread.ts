@@ -8,6 +8,7 @@ import {
   noteUnauthorized,
   threadPath,
 } from '~/api/client';
+import type { AgentLive } from '~/components/agent/avatar/agent-live';
 import { noteNewThread, threadsKey } from '~/hooks/use-agents';
 import {
   type AgentUIMessage,
@@ -302,11 +303,30 @@ export function useAgentThread({
 
   const waitingForAgent = pending.some((message) => message.state !== 'failed');
 
+  // What the agent's avatar shows: a tool running, a stream being restored, a reply that failed.
+  const lastReply = messages.findLast((message) => message.role === 'assistant');
+  const runningTool =
+    busy &&
+    Boolean(
+      lastReply?.parts.some(
+        (part) => part.type === 'dynamic-tool' && part.state === 'input-available',
+      ),
+    );
+  const failed = !busy && lastReply?.metadata?.status === 'error';
+  const connected = connection === 'live';
+  const reconnecting = connection === 'reconnecting';
+  const live = useMemo<AgentLive>(
+    () => ({ connected, busy, runningTool, reconnecting, failed }),
+    [connected, busy, runningTool, reconnecting, failed],
+  );
+
   return {
     view,
     messages,
     /** The agent is working on a reply in this conversation. */
     busy,
+    /** For the agent's avatar: see publishAgentLive. */
+    live,
     /** Sent from this tab and not taken up by the agent yet. */
     waitingForAgent,
     pending,

@@ -1,5 +1,7 @@
 import type { UIMessage } from 'ai';
 import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Agent } from '~/api/client';
+import { AgentAvatar } from '~/components/agent/agent-avatar';
 import { reasoningOf, textOf } from '~/components/chat/message-content';
 import { MessageRow, messageExcerptOf } from '~/components/chat/message-row';
 import { toolStepsOf } from '~/components/chat/tool-steps';
@@ -14,6 +16,8 @@ interface MessageListProps {
   working: boolean;
   /** What the dots say while nothing of the reply is visible yet. */
   waitingLabel?: string;
+  /** Whose replies these are, for the avatar beside each. */
+  agent?: Pick<Agent, 'id' | 'enabled' | 'running'>;
   /** Sends the latest question again; offered on the latest reply. */
   onRetry?: () => void;
   /**
@@ -50,6 +54,7 @@ export const MessageList = memo(function MessageList({
   liveReplyId,
   working,
   waitingLabel,
+  agent,
   onRetry,
   scrollRef,
 }: MessageListProps) {
@@ -134,6 +139,8 @@ export const MessageList = memo(function MessageList({
                 streaming={message.id === liveReplyId}
                 onRetry={message.id === lastReplyId && !working ? onRetry : undefined}
                 position={positions[entry.index]}
+                agent={agent}
+                latest={message.id === lastReplyId}
               />
             </div>
           );
@@ -144,16 +151,22 @@ export const MessageList = memo(function MessageList({
           reasoning or a tool step arrives. */}
       {showDots && (
         <div className="pb-6">
-          <div role="status" className="flex items-center gap-1.5 py-2" aria-label={dotsLabel}>
-            {[0, 1, 2].map((dot) => (
-              <span
-                key={dot}
-                className="size-1.5 animate-bounce rounded-full bg-[var(--text-muted)]"
-                style={{ animationDelay: `${dot * 0.15}s` }}
-              />
-            ))}
-            {waitingLabel && (
-              <span className="ml-2 text-xs text-[var(--text-muted)]">{waitingLabel}</span>
+          <div role="status" className="flex items-center gap-3" aria-label={dotsLabel}>
+            {agent ? (
+              <AgentAvatar agent={agent} size={28} />
+            ) : (
+              <span className="flex items-center gap-1.5 py-2">
+                {[0, 1, 2].map((dot) => (
+                  <span
+                    key={dot}
+                    className="size-1.5 animate-bounce rounded-full bg-[var(--text-muted)]"
+                    style={{ animationDelay: `${dot * 0.15}s` }}
+                  />
+                ))}
+              </span>
+            )}
+            {(waitingLabel || agent) && (
+              <span className="text-xs text-[var(--text-muted)]">{waitingLabel ?? dotsLabel}</span>
             )}
           </div>
         </div>

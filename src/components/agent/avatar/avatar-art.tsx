@@ -4,23 +4,13 @@ import './avatar.css';
 import './face.css';
 import type { AvatarState } from './states';
 
-export type AvatarStyle = 'face' | 'orb' | 'pi' | 'bars' | 'dots';
+export type AvatarStyle = 'face' | 'bars' | 'dots';
 
 export const AVATAR_STYLES: { id: AvatarStyle; name: string; blurb: string }[] = [
   {
     id: 'face',
     name: 'Face',
     blurb: "pi-d-ui's face, ported as it is: a character with a routine of its own.",
-  },
-  {
-    id: 'orb',
-    name: 'Orb',
-    blurb: 'A glass sphere whose bright core looks around. Calm; reads from across the room.',
-  },
-  {
-    id: 'pi',
-    name: 'Pi',
-    blurb: 'The π mark as a little character: its bar and legs act out what the agent is doing.',
   },
   {
     id: 'bars',
@@ -66,7 +56,7 @@ export interface AvatarArtProps {
   className?: string;
 }
 
-/** An agent's animated avatar. All five styles take the same states (see states.ts). */
+/** An agent's animated avatar. All three styles take the same states (see states.ts). */
 export function AvatarArt({
   style,
   state,
@@ -92,8 +82,6 @@ export function AvatarArt({
       style={css}
     >
       {style === 'face' && <FaceArt />}
-      {style === 'orb' && <OrbArt />}
-      {style === 'pi' && <PiArt />}
       {style === 'bars' && <BarsArt />}
       {style === 'dots' && <DotsArt />}
     </span>
@@ -108,26 +96,15 @@ function Svg({ children }: { children: ReactNode }) {
   );
 }
 
-/** Three z's drawn as strokes, rising while asleep. */
-function Zzz({ at }: { at: [number, number, number][] }) {
-  return (
-    <g className="av-zzz">
-      {at.map(([x, y, scale]) => (
-        <g key={`${x}-${y}`} transform={`translate(${x} ${y}) scale(${scale})`}>
-          <path className="av-z" d="M0 0 H9 L0 10 H9" />
-        </g>
-      ))}
-    </g>
-  );
-}
-
-const SPARKLE = 'M83 5 L86 15 L96 18 L86 21 L83 31 L80 21 L70 18 L80 15 Z';
-
 // ── Face: pi-d-ui's, as it is ───────────────────────────────────────────────────────────────
 
 function FaceArt() {
   return (
     <Svg>
+      <g className="face-ring">
+        <circle className="face-ring-track" cx="50" cy="50" r="48" />
+        <circle className="face-ring-arc" cx="50" cy="50" r="48" pathLength="100" />
+      </g>
       <g className="face-body">
         <circle className="face-disc" cx="50" cy="50" r="44" />
         <g className="face-gaze">
@@ -167,57 +144,6 @@ function FaceArt() {
         <rect x="44" y="12" width="12" height="52" rx="6" />
         <circle cx="50" cy="82" r="7" />
       </g>
-    </Svg>
-  );
-}
-
-// ── Orb ─────────────────────────────────────────────────────────────────────────────────────
-
-function OrbArt() {
-  return (
-    <>
-      <span className="orb-glow" />
-      <span className="orb-body">
-        <span className="orb-swirl" />
-        <span className="orb-core" />
-        <span className="orb-shine" />
-      </span>
-      <span className="orb-orbit" />
-      <span className="orb-ring" />
-      <span className="orb-ping" />
-      <span className="orb-badge" />
-    </>
-  );
-}
-
-// ── Pi ──────────────────────────────────────────────────────────────────────────────────────
-
-function PiArt() {
-  return (
-    <Svg>
-      <circle className="pi-back" cx="50" cy="50" r="46" />
-      <circle className="pi-ping" cx="50" cy="50" r="46" />
-      <circle className="pi-dash" cx="50" cy="50" r="46" />
-      <g className="pi-body">
-        <g className="pi-bar">
-          <path d="M21 31 H79" />
-        </g>
-        <g className="pi-leg pi-leg-l">
-          <path d="M38 33 V73" />
-        </g>
-        <g className="pi-leg pi-leg-r">
-          <path d="M62 33 V61 Q62 73 75 73" />
-        </g>
-      </g>
-      <Zzz
-        at={[
-          [64, 28, 0.75],
-          [74, 15, 0.95],
-          [85, 2, 1.15],
-        ]}
-      />
-      <path className="av-spark" d={SPARKLE} />
-      <circle className="pi-badge" cx="84" cy="16" r="11" />
     </Svg>
   );
 }

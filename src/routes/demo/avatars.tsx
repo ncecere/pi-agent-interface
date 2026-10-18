@@ -178,7 +178,7 @@ export function AvatarsDemoPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Agent avatars</h1>
             <p className="mt-1 max-w-xl text-sm text-[var(--text-muted)]">
-              Five styles, one set of states. Each avatar is drawn from the agent's hue and moves
+              Three styles, one set of states. Each avatar is drawn from the agent's hue and moves
               with what the agent is doing. Choose one; it replaces the initials.
             </p>
           </div>

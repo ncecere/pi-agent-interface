@@ -112,7 +112,7 @@ export function ChatHomePage({ agentId }: { agentId?: string }) {
       <div className="flex-none px-4 pb-8 md:flex-1 md:overflow-y-auto md:pt-[11vh] md:pb-0">
         <div className="mx-auto w-full max-w-[41.75rem]">
           <h1 className="flex flex-col items-center gap-3 text-center text-[1.375rem] font-bold leading-tight tracking-tight md:flex-row md:text-left md:text-[1.875rem]">
-            {agent && <AgentAvatar agent={agent} size="lg" showStatus />}
+            {agent && <AgentAvatar agent={agent} size="lg" />}
             <span className={cn(!agent && !loading && 'text-[var(--text-secondary)]')}>
               {agent ? (
                 <>

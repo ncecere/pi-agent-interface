@@ -58,7 +58,7 @@ export const AgentPicker = memo(function AgentPicker({
 
   const label = (
     <>
-      {selected && <AgentAvatar agent={selected} size="sm" showStatus />}
+      {selected && <AgentAvatar agent={selected} size="sm" />}
       <span className="min-w-0 truncate">{selected?.name ?? 'Choose an agent'}</span>
     </>
   );
@@ -172,7 +172,7 @@ export const AgentPicker = memo(function AgentPicker({
                   !agent.enabled && 'cursor-not-allowed opacity-60',
                 )}
               >
-                <AgentAvatar agent={agent} showStatus />
+                <AgentAvatar agent={agent} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-[var(--text-primary)]">

@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgentPicker } from '~/components/agent/agent-picker';
+import { publishAgentLive } from '~/components/agent/avatar/agent-live';
 import { Composer } from '~/components/chat/composer';
 import { preloadMarkdownRenderer, useMarkdownRendererReady } from '~/components/chat/markdown';
 import { textOf } from '~/components/chat/message-content';
@@ -38,6 +39,11 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
   usePageTitle(title ?? (agent ? `Chat with ${agent.name}` : 'Conversation'));
 
   useEffect(() => rememberAgent(agentId), [agentId]);
+
+  // Every avatar of this agent shows what this conversation says it is doing.
+  const { live } = session;
+  useEffect(() => publishAgentLive(agentId, live), [agentId, live]);
+  useEffect(() => () => publishAgentLive(agentId, null), [agentId]);
 
   // The Markdown renderer loads beside the transcript, so replies do not
   // show as Markdown source and then jump.
@@ -148,6 +154,7 @@ function ThreadConversation({ agentId, threadId }: { agentId: string; threadId: 
                 liveReplyId={liveReplyId}
                 working={working}
                 waitingLabel={waitingLabel}
+                agent={agent}
                 onRetry={retry}
                 scrollRef={scroll.scrollRef}
               />
