@@ -5,6 +5,7 @@ import {
   type InboxEntry,
   isBlank,
   nextWake,
+  replyFinished,
   STALE_WORKING_MS,
   sectionsOf,
   snoozePresets,
@@ -254,5 +255,52 @@ describe('nextWake', () => {
       ),
     ).toBe(NOW + HOUR);
     expect(nextWake([{}, { snoozedUntil: NOW - HOUR }], NOW)).toBeNull();
+  });
+});
+
+describe('replyFinished', () => {
+  const view = (busy: boolean, ...roles: string[]) => ({
+    busy,
+    messages: roles.map((role) => ({ role })),
+  });
+
+  it('is not finished while the agent is busy', () => {
+    expect(replyFinished(view(true, 'user', 'assistant'))).toBe(false);
+  });
+
+  it('is finished when idle and the transcript ends with the agent', () => {
+    expect(replyFinished(view(false, 'user', 'assistant'))).toBe(true);
+    expect(replyFinished(view(false, 'user', 'assistant', 'tool', 'assistant'))).toBe(true);
+  });
+
+  it('is not finished when the last word is the person’s: the agent has not started', () => {
+    expect(replyFinished(view(false, 'user'))).toBe(false);
+    expect(replyFinished(view(false, 'user', 'assistant', 'user'))).toBe(false);
+  });
+
+  it('does not take an older state of the conversation for the answer to a new message', () => {
+    // One question answered; a second was just sent but is not in the transcript yet.
+    const old = view(false, 'user', 'assistant');
+    expect(replyFinished(old, 2)).toBe(false);
+    expect(replyFinished(view(false, 'user', 'assistant', 'user', 'assistant'), 2)).toBe(true);
+  });
+});
+
+describe('working after a send', () => {
+  it('remembers what the transcript must hold, never less than before', () => {
+    const first = change.working({}, NOW, 2);
+    expect(first).toMatchObject({ workingSince: NOW, awaitingUsers: 2 });
+    expect(change.working(first, NOW + MIN, 3).awaitingUsers).toBe(3);
+    expect(change.working(first, NOW + MIN, 1).awaitingUsers).toBe(2);
+    expect(change.working(first, NOW + MIN).workingSince).toBe(NOW);
+  });
+
+  it('is cleared when the work ends or is given up on', () => {
+    const waiting = change.working({}, NOW, 2);
+    expect(change.finished(waiting, NOW + MIN, false).awaitingUsers).toBeUndefined();
+    expect(change.forgotten(waiting)).toMatchObject({
+      workingSince: undefined,
+      awaitingUsers: undefined,
+    });
   });
 });

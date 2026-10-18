@@ -42,11 +42,16 @@ const signInRoute = createRoute({
   },
 });
 
-/** A review page for the avatar styles; public, loaded only when opened. */
+/**
+ * A review page for the avatar styles. Development only: in a production build
+ * the condition is constant, so the page is not even in the bundle.
+ */
 const avatarsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/avatars',
-  component: lazyRouteComponent(() => import('~/routes/demo/avatars'), 'AvatarsDemoPage'),
+  component: import.meta.env.DEV
+    ? lazyRouteComponent(() => import('~/routes/demo/avatars'), 'AvatarsDemoPage')
+    : () => <NotFoundPage />,
 });
 
 const authenticatedRoute = createRoute({

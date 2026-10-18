@@ -18,7 +18,7 @@ import {
   userMessagesWithText,
   viewToMessages,
 } from '~/lib/chat-view';
-import { threadKey } from '~/lib/inbox';
+import { replyFinished, threadKey } from '~/lib/inbox';
 import { isFinal, readEventStream } from '~/lib/sse';
 
 /** The platform's limit on one message. */
@@ -125,6 +125,10 @@ export function useAgentThread({
   const [view, setView] = useState<ChatView | null>(null);
   const viewRef = useRef<ChatView | null>(null);
   const [pending, setPending] = useState<PendingMessage[]>([]);
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  /** After a send: how many of the person's messages the transcript must hold before a quiet agent means "done". */
+  const awaitingUsers = useRef<number | null>(null);
   const [draft, setDraft] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
@@ -220,6 +224,8 @@ export function useAgentThread({
 
   // The inbox learns when this conversation starts and stops working, and when it is looked at.
   const inbox = useInboxActions();
+  const inboxRef = useRef(inbox);
+  inboxRef.current = inbox;
   const inboxKey = threadKey(agentId, threadId);
   const lastViewReply = view?.messages.findLast((message) => message.role === 'assistant');
   const replyFailed = Boolean(lastViewReply?.error && lastViewReply.error !== 'Interrupted');
@@ -230,10 +236,21 @@ export function useAgentThread({
     if (busy) inbox.working(inboxKey);
     if (wasBusy.current && !busy) {
       inbox.finished(inboxKey, replyFailed);
+      awaitingUsers.current = null;
       void queryClient.invalidateQueries({ queryKey: threadsKey(agentId) });
     }
     wasBusy.current = busy;
   }, [busy, agentId, queryClient, inbox, inboxKey, replyFailed]);
+
+  // A reply can finish between two views, so that busy is never seen to fall:
+  // the transcript holding the message that was sent, with the agent idle, says so.
+  useEffect(() => {
+    if (awaitingUsers.current === null || !view) return;
+    if (!replyFinished(view, awaitingUsers.current)) return;
+    awaitingUsers.current = null;
+    inbox.finished(inboxKey, replyFailed);
+    void queryClient.invalidateQueries({ queryKey: threadsKey(agentId) });
+  }, [view, agentId, queryClient, inbox, inboxKey, replyFailed]);
 
   // Open and in view: whatever was new is seen.
   const seenView = view !== null;
@@ -275,6 +292,14 @@ export function useAgentThread({
           setExists(true);
         }
         clearHandover(threadId);
+        // The agent is going to work on it, even if it has not said so yet, and
+        // the inbox should follow that if the person leaves before it does.
+        const users = (viewRef.current?.messages ?? []).filter((m) => m.role === 'user').length;
+        const waiting = pendingRef.current.filter(
+          (m) => m.state === 'sending' || m.state === 'queued',
+        ).length;
+        awaitingUsers.current = Math.max(awaitingUsers.current ?? 0, users + Math.max(waiting, 1));
+        inboxRef.current.working(threadKey(agentId, threadId), awaitingUsers.current);
         return true;
       } catch (error) {
         setPending((current) =>

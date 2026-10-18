@@ -28,6 +28,12 @@ export interface ThreadMeta {
   failedAt?: number;
   /** Set while a reply is being written; cleared when it is seen to end. */
   workingSince?: number;
+  /**
+   * After a send: how many of the person's messages the transcript must hold
+   * before "not busy" means the reply is done. Until then the agent may simply
+   * not have started.
+   */
+  awaitingUsers?: number;
 }
 
 export type Bucket = 'pinned' | 'working' | 'inbox' | 'snoozed' | 'done' | 'archived';
@@ -284,17 +290,41 @@ export const change = {
     completedAt: now,
     visitedAt: Math.min(meta.visitedAt ?? 0, now - 1),
   }),
-  working: (meta: ThreadMeta, now: number): ThreadMeta =>
-    meta.workingSince === undefined ? { ...meta, workingSince: now } : meta,
+  working: (meta: ThreadMeta, now: number, awaitingUsers?: number): ThreadMeta => ({
+    ...meta,
+    workingSince: meta.workingSince ?? now,
+    ...(awaitingUsers === undefined
+      ? {}
+      : { awaitingUsers: Math.max(meta.awaitingUsers ?? 0, awaitingUsers) }),
+  }),
   finished: (meta: ThreadMeta, now: number, failed: boolean): ThreadMeta => ({
     ...meta,
     workingSince: undefined,
+    awaitingUsers: undefined,
     completedAt: now,
     ...(failed ? { failedAt: now } : {}),
   }),
   /** Not working any more and nothing to report: it was deleted, or lost track of. */
-  forgotten: (meta: ThreadMeta): ThreadMeta => ({ ...meta, workingSince: undefined }),
+  forgotten: (meta: ThreadMeta): ThreadMeta => ({
+    ...meta,
+    workingSince: undefined,
+    awaitingUsers: undefined,
+  }),
 };
+
+/**
+ * Whether a conversation's view says the reply it was waiting for is done: the
+ * agent is idle, the transcript has the message that was sent (not an older
+ * state of it), and it ends with the agent's side, not the person's.
+ */
+export function replyFinished(
+  view: { busy: boolean; messages: ReadonlyArray<{ role: string }> },
+  awaitingUsers = 0,
+): boolean {
+  if (view.busy) return false;
+  const users = view.messages.filter((message) => message.role === 'user').length;
+  return users >= awaitingUsers && view.messages.at(-1)?.role !== 'user';
+}
 
 /** A meta with every field left undefined is not worth keeping. */
 export function isBlank(meta: ThreadMeta): boolean {

@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-server
+.git
+.env
+.env.*
+!.env.example
+.shots
+tests
+*.md
+!README.md

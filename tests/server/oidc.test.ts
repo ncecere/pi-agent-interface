@@ -252,9 +252,13 @@ describe('single sign-on', () => {
     };
 
     it('is refused for a replayed (wrong) nonce', () =>
-      refused(() => void (mischief.nonce = 'someone-elses')));
+      refused(() => {
+        mischief.nonce = 'someone-elses';
+      }));
     it('is refused for a token meant for another client', () =>
-      refused(() => void (mischief.audience = 'another-app')));
+      refused(() => {
+        mischief.audience = 'another-app';
+      }));
   });
 
   it('is not offered when it is not configured', async () => {

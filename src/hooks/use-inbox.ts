@@ -20,6 +20,7 @@ import {
   isWorking,
   needsAttention,
   nextWake,
+  replyFinished,
   type Sections,
   sectionsOf,
   statusOf,
@@ -70,7 +71,8 @@ export interface InboxActions {
   restore(key: string, meta: ThreadMeta | undefined): void;
   /** The conversation is open and in view. */
   visit(key: string): void;
-  working(key: string): void;
+  /** The agent is working here; after a send, `awaitingUsers` is what its transcript must hold before it is done. */
+  working(key: string, awaitingUsers?: number): void;
   finished(key: string, failed: boolean): void;
   forget(key: string): void;
 }
@@ -114,7 +116,8 @@ export function inboxActionsFor(store: InboxStore): InboxActions {
       if (!unseen && !woke && meta.visitedAt !== undefined && at - seen < VISIT_EVERY_MS) return;
       store.set(key, change.visit(meta, at));
     },
-    working: (key) => store.update(key, (meta) => change.working(meta, now())),
+    working: (key, awaitingUsers) =>
+      store.update(key, (meta) => change.working(meta, now(), awaitingUsers)),
     finished: (key, failed) => store.update(key, (meta) => change.finished(meta, now(), failed)),
     forget: (key) => store.update(key, change.forgotten),
   };
@@ -294,7 +297,7 @@ export function useInboxTracker() {
           if (!agentId || !threadId) return actions.forget(key);
           try {
             const view = await api.get<ChatView>(threadPath(agentId, threadId));
-            if (view.busy) return;
+            if (!replyFinished(view, meta.awaitingUsers)) return;
             const last = view.messages.findLast((message) => message.role === 'assistant');
             actions.finished(key, Boolean(last?.error && last.error !== 'Interrupted'));
           } catch (error) {
