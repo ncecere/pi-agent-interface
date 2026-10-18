@@ -40,18 +40,27 @@ export const AgentPicker = memo(function AgentPicker({
   const [activeId, setActiveId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Provided agents first, then the person's own; arrow keys follow the same order.
-  const visible = useMemo(
-    () =>
-      agents
-        .filter((agent) => matches(agent, query))
-        .sort((a, b) => Number(a.kind === 'personal') - Number(b.kind === 'personal')),
-    [agents, query],
-  );
-  const groups = [
-    { label: 'Provided', items: visible.filter((agent) => agent.kind !== 'personal') },
-    { label: 'Yours', items: visible.filter((agent) => agent.kind === 'personal') },
-  ].filter((group) => group.items.length > 0);
+  // Provided agents first, then the person's own, then each team's; arrow keys follow the same order.
+  const groups = useMemo(() => {
+    const shown = agents.filter((agent) => matches(agent, query));
+    const teamNames = [
+      ...new Set(
+        shown.filter((agent) => agent.kind === 'team').map((agent) => agent.teamName ?? ''),
+      ),
+    ].sort((a, b) => a.localeCompare(b));
+    return [
+      {
+        label: 'Provided',
+        items: shown.filter((agent) => !agent.kind || agent.kind === 'provided'),
+      },
+      { label: 'Yours', items: shown.filter((agent) => agent.kind === 'personal') },
+      ...teamNames.map((name) => ({
+        label: name || 'Team',
+        items: shown.filter((agent) => agent.kind === 'team' && (agent.teamName ?? '') === name),
+      })),
+    ].filter((group) => group.items.length > 0);
+  }, [agents, query]);
+  const visible = useMemo(() => groups.flatMap((group) => group.items), [groups]);
   const teams = useMemo(() => new Set(agents.map((agent) => agent.teamId)).size, [agents]);
   const active =
     visible.find((agent) => agent.id === activeId) ??

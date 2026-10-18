@@ -25,10 +25,21 @@ tim / bob / sally ──sign in──▶ chat server (server/) ──service key
 
 ## What you need
 
-1. **A pi-durable-platform** with a team (default slug `pi-agent-interface`), and in it:
-   - a **service account** with role **editor**, and a key (`pdp_sa_…`) → `PLATFORM_SERVICE_KEY`;
-   - a **model published to the team**, named in `AGENT_MODEL`. Without one every agent answers from the
-     platform's default, which out of the box is a scripted demo model.
+1. **A pi-durable-platform.** The app reaches people's agents in one of two ways (`PLATFORM_AUTH`):
+   - **`connect`** (the default without a service key; needs a platform with OAuth Connect, which it advertises as
+     `connect` in `GET /v1/auth/config`): each person connects their own platform account once, after signing in
+     here. Their agents live in **their personal workspace** on the platform, beside their teams' agents, and the
+     server calls the platform with their token. Nothing to set up on the platform except that personal
+     workspaces are on; the app identifies itself with a Client ID Metadata Document at
+     `<APP_URL>/oauth/client-metadata.json` (an administrator of the platform may mark it trusted, so people skip
+     the approval screen). On a local `http://localhost` APP_URL it registers itself instead.
+   - **`service`** (a platform without Connect): a team (default slug `pi-agent-interface`) with a **service
+     account** of role **editor**, and its key (`pdp_sa_…`) → `PLATFORM_SERVICE_KEY`, `PLATFORM_TEAM`. The app
+     gives each person agents in that team. Also needs a **model published to the team**, named in `AGENT_MODEL`;
+     without one every agent answers from the platform's default.
+
+   In Connect mode, Admin → Usage is not available (people's agents aren't in a team the administrators see);
+   Settings → Usage shows each person their own.
 2. **An OpenID Connect provider** (authentik, Keycloak, Entra…): a confidential client whose redirect URI is
    `<APP_URL>/auth/callback`, with the `openid profile email` scopes → `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
    `OIDC_CLIENT_SECRET`. The provider must be reached over https.
@@ -40,7 +51,9 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | Variable | Meaning |
 |---|---|
 | `APP_URL` | Where people open the app, e.g. `https://chat.example.com`. Its origin is the only one allowed to write. |
-| `PLATFORM_URL`, `PLATFORM_TEAM`, `PLATFORM_SERVICE_KEY` | The platform, the team, and the service account key. Never sent to browsers. |
+| `PLATFORM_URL` | The platform's address. https outside localhost. |
+| `PLATFORM_AUTH` | `connect` or `service` (above). Default: `service` if `PLATFORM_SERVICE_KEY` is set, else `connect`. |
+| `PLATFORM_TEAM`, `PLATFORM_SERVICE_KEY` | Service mode only: the team and its service account's key. Never sent to browsers. |
 | `AGENT_TEMPLATE`, `AGENT_NAME` | The platform template each person's assistant is made from, and what the app calls it. |
 | `AGENT_MODEL` | The default model, by name or id, until an administrator picks one in Admin → Agents (which wins). Only a model currently published to the team is ever set, since an agent on an unpublished model would not start. Empty: the platform decides. |
 | `DATABASE_URL` | The chat app's own Postgres (people, roles, settings, preferences). Migrated on start. Conversations stay on the platform. |

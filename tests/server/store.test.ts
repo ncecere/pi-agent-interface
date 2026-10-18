@@ -148,6 +148,70 @@ function contract(name: string, make: () => Promise<Store>) {
       });
     });
 
+    it('keeps a person’s platform connection, replaces it, and forgets it (and with the person)', async () => {
+      await store.signIn(tim, null);
+      expect(await store.connection('tim')).toBeNull();
+      const connection = {
+        accessToken: 'enc-a',
+        accessExpiresAt: new Date('2026-10-18T12:00:00Z'),
+        refreshToken: 'enc-r',
+        platformUserId: 'u1',
+        platformEmail: 'tim@example.test',
+        platformName: 'Tim',
+        updatedAt: new Date(),
+      };
+      await store.saveConnection('tim', connection);
+      expect(await store.connection('tim')).toMatchObject({
+        accessToken: 'enc-a',
+        refreshToken: 'enc-r',
+        platformEmail: 'tim@example.test',
+      });
+      await store.saveConnection('tim', { ...connection, accessToken: 'enc-a2' });
+      expect((await store.connection('tim'))?.accessToken).toBe('enc-a2');
+      await expect(store.saveConnection('nobody', connection)).rejects.toMatchObject({
+        code: 'not_found',
+      });
+      await store.removeConnection('tim');
+      expect(await store.connection('tim')).toBeNull();
+    });
+
+    it('runs one refresh at a time per person', async () => {
+      await store.signIn(tim, null);
+      const order: string[] = [];
+      const slow = (label: string, ms: number) => () =>
+        new Promise<string>((resolve) =>
+          setTimeout(() => {
+            order.push(label);
+            resolve(label);
+          }, ms),
+        );
+      const results = await Promise.all([
+        store.withConnectionLock('tim', async () => {
+          order.push('first:start');
+          return slow('first:end', 40)();
+        }),
+        store.withConnectionLock('tim', async () => {
+          order.push('second:start');
+          return slow('second:end', 1)();
+        }),
+      ]);
+      expect(results).toEqual(['first:end', 'second:end']);
+      expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end']);
+    });
+
+    it('remembers which agent is each person’s copy of a provided agent', async () => {
+      await store.signIn(tim, null);
+      await store.setProvidedCopy('tim', 'assistant', 'agent-1');
+      await store.setProvidedCopy('tim', 'hr', 'agent-2');
+      await store.setProvidedCopy('tim', 'hr', 'agent-3');
+      expect([...(await store.providedCopies('tim'))].sort()).toEqual([
+        ['assistant', 'agent-1'],
+        ['hr', 'agent-3'],
+      ]);
+      await store.removeProvidedCopy('tim', 'hr');
+      expect([...(await store.providedCopies('tim'))]).toEqual([['assistant', 'agent-1']]);
+    });
+
     it('keeps an audit log of who changed what, newest first', async () => {
       await store.signIn(tim, 'tim@example.test');
       await store.signIn(bob, null);
@@ -192,7 +256,7 @@ describe.skipIf(!available)('PgStore', () => {
     url.pathname = `/${name}`;
     const store = PgStore.connect(url.href);
     stores.push(store);
-    expect(await migrate(store.sql)).toEqual([1, 2]);
+    expect(await migrate(store.sql)).toEqual([1, 2, 3]);
     expect(await migrate(store.sql)).toEqual([]);
   });
 

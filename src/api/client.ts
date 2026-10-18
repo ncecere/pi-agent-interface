@@ -9,8 +9,13 @@ import type { components } from './schema.gen';
 type Schemas = components['schemas'];
 /** A platform agent as this app lists it: with the app's own name for it and its kind. */
 export type Agent = Schemas['Agent'] & {
-  /** provided: every person gets their own copy (Admin → Agents); personal: made by the person. */
-  kind?: 'provided' | 'personal';
+  /**
+   * provided: every person gets their own copy (Admin → Agents); personal: the
+   * person's own; team: an agent of a shared team they belong to (Connect).
+   */
+  kind?: 'provided' | 'personal' | 'team';
+  /** For team agents: the team's name, to group them by. */
+  teamName?: string;
 };
 export type AgentThread = Schemas['AgentThread'];
 export type ChatView = Schemas['ChatView'];
@@ -25,6 +30,14 @@ export interface Me {
   user: { id: string; name: string; email: string; role: Role };
   csrfToken: string;
   features?: Partial<Record<FeatureId, boolean>>;
+  /**
+   * How the app reaches the person's agents. `connect`: they connect their own
+   * platform account (`account` null until they do); `service`: nothing to do.
+   */
+  platform?: {
+    mode: 'connect' | 'service';
+    account: { email: string | null; name: string | null; since: string } | null;
+  };
 }
 
 export interface AuthConfig {
@@ -66,6 +79,13 @@ export function onSessionEnded(listener: () => void): () => void {
   sessionEndedListeners.add(listener);
   return () => sessionEndedListeners.delete(listener);
 }
+const notConnectedListeners = new Set<() => void>();
+/** Called when the server says the person's platform connection is missing or has ended (Connect mode). */
+export function onNotConnected(listener: () => void): () => void {
+  notConnectedListeners.add(listener);
+  return () => notConnectedListeners.delete(listener);
+}
+
 export function noteUnauthorized() {
   if (!csrfToken) return;
   setCsrfToken('');
@@ -108,6 +128,7 @@ export async function request<T>(
   if (!response.ok) {
     const error = apiErrorFrom(response, parsed);
     if (response.status === 401) noteUnauthorized();
+    if (error.code === 'not_connected') for (const listener of notConnectedListeners) listener();
     // Suspended while signed in: the session is over, and sign-in says why.
     if (error.code === 'suspended' && window.location.pathname !== '/sign-in')
       window.location.assign('/sign-in?error=suspended');

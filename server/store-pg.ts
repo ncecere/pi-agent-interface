@@ -5,6 +5,7 @@ import {
   type Person,
   type PersonalAgent,
   type PersonChange,
+  type PlatformConnection,
   type Store,
   StoreError,
 } from './store.ts';
@@ -69,10 +70,34 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: 'platform connections and provided copies (Connect mode)',
+    sql: `
+      create table platform_connections (
+        person_id text primary key references people (id) on delete cascade,
+        access_token text not null,
+        access_expires_at timestamptz not null,
+        refresh_token text not null,
+        platform_user_id text,
+        platform_email text,
+        platform_name text,
+        updated_at timestamptz not null default now()
+      );
+      create table provided_copies (
+        person_id text not null references people (id) on delete cascade,
+        provided_id text not null,
+        agent_id text not null,
+        primary key (person_id, provided_id)
+      );
+    `,
+  },
 ];
 
 /** Any number, the same for every replica: only one migrates at a time. */
 const MIGRATION_LOCK = 72_017_001;
+/** The advisory-lock class for refreshing one person's platform tokens. */
+const CONNECTION_LOCK = 72_017_002;
 
 type Sql = postgres.Sql;
 
@@ -269,6 +294,83 @@ export class PgStore implements Store {
 
   async removePersonalAgent(personId: string, slot: string) {
     await this.sql`delete from personal_agents where person_id = ${personId} and slot = ${slot}`;
+  }
+
+  async connection(personId: string): Promise<PlatformConnection | null> {
+    const [row] = await this.sql<
+      {
+        access_token: string;
+        access_expires_at: Date;
+        refresh_token: string;
+        platform_user_id: string | null;
+        platform_email: string | null;
+        platform_name: string | null;
+        updated_at: Date;
+      }[]
+    >`select access_token, access_expires_at, refresh_token, platform_user_id, platform_email,
+             platform_name, updated_at
+        from platform_connections where person_id = ${personId}`;
+    return row
+      ? {
+          accessToken: row.access_token,
+          accessExpiresAt: row.access_expires_at,
+          refreshToken: row.refresh_token,
+          platformUserId: row.platform_user_id,
+          platformEmail: row.platform_email,
+          platformName: row.platform_name,
+          updatedAt: row.updated_at,
+        }
+      : null;
+  }
+
+  async saveConnection(personId: string, c: PlatformConnection) {
+    try {
+      await this.sql`
+        insert into platform_connections (person_id, access_token, access_expires_at, refresh_token,
+                                          platform_user_id, platform_email, platform_name, updated_at)
+        values (${personId}, ${c.accessToken}, ${c.accessExpiresAt}, ${c.refreshToken},
+                ${c.platformUserId}, ${c.platformEmail}, ${c.platformName}, now())
+        on conflict (person_id) do update set
+          access_token = excluded.access_token, access_expires_at = excluded.access_expires_at,
+          refresh_token = excluded.refresh_token, platform_user_id = excluded.platform_user_id,
+          platform_email = excluded.platform_email, platform_name = excluded.platform_name,
+          updated_at = now()`;
+    } catch (error) {
+      if ((error as { code?: string }).code === '23503')
+        throw new StoreError('not_found', 'No such person');
+      throw error;
+    }
+  }
+
+  async removeConnection(personId: string) {
+    await this.sql`delete from platform_connections where person_id = ${personId}`;
+  }
+
+  async withConnectionLock<T>(personId: string, fn: () => Promise<T>): Promise<T> {
+    // A transaction-scoped advisory lock on the person: other replicas wait for it.
+    let out: T;
+    await this.sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(${CONNECTION_LOCK}, hashtext(${personId}))`;
+      out = await fn();
+    });
+    return out!;
+  }
+
+  async providedCopies(personId: string) {
+    const rows = await this.sql<{ provided_id: string; agent_id: string }[]>`
+      select provided_id, agent_id from provided_copies where person_id = ${personId}`;
+    return new Map(rows.map((row) => [row.provided_id, row.agent_id]));
+  }
+
+  async setProvidedCopy(personId: string, providedId: string, agentId: string) {
+    await this.sql`
+      insert into provided_copies (person_id, provided_id, agent_id) values (${personId}, ${providedId}, ${agentId})
+      on conflict (person_id, provided_id) do update set agent_id = excluded.agent_id`;
+  }
+
+  async removeProvidedCopy(personId: string, providedId: string) {
+    await this
+      .sql`delete from provided_copies where person_id = ${personId} and provided_id = ${providedId}`;
   }
 
   async setting(key: string) {

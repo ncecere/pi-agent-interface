@@ -157,8 +157,9 @@ export interface AdminFeature {
   description: string;
   default: boolean;
   enabled: boolean;
-  /** Turned off by the deployment (DISABLED_FEATURES): cannot be turned on here. */
+  /** Can't be turned on here (DISABLED_FEATURES, or the platform mode); `lockedReason` says why. */
   locked: boolean;
+  lockedReason?: string | null;
 }
 
 export const useFeaturesAdmin = () =>

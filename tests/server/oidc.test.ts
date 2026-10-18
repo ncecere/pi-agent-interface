@@ -334,12 +334,23 @@ describe('loadConfig', () => {
   it('refuses a weak session secret and missing settings, naming each', () => {
     const message = problems({
       SESSION_SECRET: 'short',
+      PLATFORM_AUTH: 'service',
       PLATFORM_SERVICE_KEY: '',
       PLATFORM_TEAM: '',
     });
     expect(message).toContain('SESSION_SECRET must be at least 32 characters');
     expect(message).toContain('PLATFORM_SERVICE_KEY is required');
     expect(message).toContain('PLATFORM_TEAM is required');
+  });
+
+  it('needs no service key or team with Connect, and uses Connect unless a service key is set', () => {
+    const base = { PLATFORM_SERVICE_KEY: '', PLATFORM_TEAM: '' };
+    expect(problems(base)).not.toContain('PLATFORM_SERVICE_KEY');
+    const load = (extra: Record<string, string>) =>
+      loadConfig({ ...good, ...extra } as NodeJS.ProcessEnv);
+    expect(load(base).platformAuth).toBe('connect');
+    expect(load({}).platformAuth).toBe('service');
+    expect(problems({ PLATFORM_AUTH: 'both' })).toContain('PLATFORM_AUTH is connect or service');
   });
 
   it('needs some way to sign in, and all three OIDC settings or none', () => {

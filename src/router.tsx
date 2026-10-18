@@ -7,6 +7,7 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { onSessionEnded } from '~/api/client';
+import { ConnectGate } from '~/components/connect/connect-gate';
 import { AppShell } from '~/components/layout/app-shell';
 import { NotFoundPage } from '~/components/ui/not-found-page';
 import { RouteLoadError } from '~/components/ui/route-load-error';
@@ -63,9 +64,11 @@ const authenticatedRoute = createRoute({
     return { session };
   },
   component: () => (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <ConnectGate>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </ConnectGate>
   ),
   pendingComponent: FullPageSpinner,
 });
@@ -109,9 +112,10 @@ const settingsRoute = createRoute({
     if (!session) throw redirect({ to: '/sign-in', search: signInSearch(location.href) as never });
     return { session };
   },
-  component: lazyRouteComponent(
-    () => import('~/components/settings/settings-layout'),
-    'SettingsLayout',
+  component: () => (
+    <ConnectGate>
+      <SettingsLayout />
+    </ConnectGate>
   ),
   pendingComponent: FullPageSpinner,
 });
@@ -160,7 +164,11 @@ const adminRoute = createRoute({
     if (session.user.role !== 'admin') throw redirect({ to: '/' });
     return { session };
   },
-  component: lazyRouteComponent(() => import('~/components/admin/admin-layout'), 'AdminLayout'),
+  component: () => (
+    <ConnectGate>
+      <AdminLayout />
+    </ConnectGate>
+  ),
   pendingComponent: FullPageSpinner,
 });
 
@@ -198,10 +206,26 @@ const adminChildren = [
   ),
 ];
 
+/** Connect mode: the "Connect your agents" page (ConnectGate draws it), also where a failed attempt lands. */
+const connectRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/connect',
+  component: () => null,
+});
+
+const SettingsLayout = lazyRouteComponent(
+  () => import('~/components/settings/settings-layout'),
+  'SettingsLayout',
+);
+const AdminLayout = lazyRouteComponent(
+  () => import('~/components/admin/admin-layout'),
+  'AdminLayout',
+);
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   avatarsRoute,
-  authenticatedRoute.addChildren([chatHomeRoute, agentRoute, threadRoute]),
+  authenticatedRoute.addChildren([chatHomeRoute, agentRoute, threadRoute, connectRoute]),
   settingsRoute.addChildren(settingsChildren),
   adminRoute.addChildren(adminChildren),
 ]);

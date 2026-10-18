@@ -38,7 +38,7 @@ export function AdminFeaturesPage() {
                     {feature.description}
                     <span className="mt-1 block text-xs">
                       {feature.locked
-                        ? 'Turned off by this deployment (DISABLED_FEATURES), so it cannot be turned on here.'
+                        ? (feature.lockedReason ?? 'This deployment turns it off.')
                         : `${feature.default ? 'On' : 'Off'} unless changed here.`}
                     </span>
                   </>

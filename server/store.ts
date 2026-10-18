@@ -85,6 +85,19 @@ export interface Store {
   setPref(personId: string, key: string, value: unknown): Promise<void>;
   /** A person's own agents, oldest first. */
   personalAgents(personId: string): Promise<PersonalAgent[]>;
+  /** A person's connection to the platform (Connect mode); tokens are stored as given (encrypted by the caller). */
+  connection(personId: string): Promise<PlatformConnection | null>;
+  saveConnection(personId: string, connection: PlatformConnection): Promise<void>;
+  removeConnection(personId: string): Promise<void>;
+  /**
+   * Runs `fn` while holding this person's connection lock, so two replicas (or
+   * two requests) never refresh the same tokens at once.
+   */
+  withConnectionLock<T>(personId: string, fn: () => Promise<T>): Promise<T>;
+  /** Which agent is a person's copy of each provided agent (Connect mode: in their personal workspace). */
+  providedCopies(personId: string): Promise<Map<string, string>>;
+  setProvidedCopy(personId: string, providedId: string, agentId: string): Promise<void>;
+  removeProvidedCopy(personId: string, providedId: string): Promise<void>;
   addPersonalAgent(personId: string, slot: string, name: string): Promise<void>;
   renamePersonalAgent(personId: string, slot: string, name: string): Promise<void>;
   removePersonalAgent(personId: string, slot: string): Promise<void>;
@@ -101,6 +114,18 @@ const sameEmail = (a: string | null | undefined, b: string | null | undefined) =
   Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
 
 /** For tests: the Store contract, in memory. */
+/** A person's tokens for the platform (Connect mode). The token fields hold ciphertext. */
+export interface PlatformConnection {
+  accessToken: string;
+  accessExpiresAt: Date;
+  refreshToken: string;
+  /** Who they are on the platform (GET /v1/me), for Settings and the email check. */
+  platformUserId: string | null;
+  platformEmail: string | null;
+  platformName: string | null;
+  updatedAt: Date;
+}
+
 export class MemoryStore implements Store {
   private readonly rows = new Map<string, Person>();
   private readonly log: AuditEntry[] = [];
@@ -227,6 +252,48 @@ export class MemoryStore implements Store {
       personId,
       (this.personal.get(personId) ?? []).filter((agent) => agent.slot !== slot),
     );
+  }
+
+  private readonly connections = new Map<string, PlatformConnection>();
+  private readonly locks = new Map<string, Promise<unknown>>();
+  private readonly copies = new Map<string, Map<string, string>>();
+
+  async connection(personId: string) {
+    const found = this.connections.get(personId);
+    return found ? structuredClone(found) : null;
+  }
+
+  async saveConnection(personId: string, connection: PlatformConnection) {
+    if (!this.rows.has(personId)) throw new StoreError('not_found', 'No such person');
+    this.connections.set(personId, structuredClone(connection));
+  }
+
+  async removeConnection(personId: string) {
+    this.connections.delete(personId);
+  }
+
+  async withConnectionLock<T>(personId: string, fn: () => Promise<T>): Promise<T> {
+    const before = this.locks.get(personId) ?? Promise.resolve();
+    const run = before.then(fn, fn);
+    this.locks.set(
+      personId,
+      run.catch(() => undefined),
+    );
+    return run;
+  }
+
+  async providedCopies(personId: string) {
+    return new Map(this.copies.get(personId) ?? []);
+  }
+
+  async setProvidedCopy(personId: string, providedId: string, agentId: string) {
+    const mine = this.copies.get(personId) ?? new Map<string, string>();
+    mine.set(providedId, agentId);
+    this.copies.set(personId, mine);
+  }
+
+  async removeProvidedCopy(personId: string, providedId: string) {
+    this.copies.get(personId)?.delete(providedId);
   }
 
   private readonly settingsMap = new Map<string, unknown>();

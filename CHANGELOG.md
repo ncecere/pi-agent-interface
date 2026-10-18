@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **OAuth Connect** (`PLATFORM_AUTH=connect`, the default without a service key): people connect their own agent
+  platform account once, after signing in, and their agents live in their personal workspace beside their teams'
+  agents. The server keeps their tokens encrypted (refreshes run one at a time per person), calls the platform
+  with them, and asks them to connect again if the connection ends. Provided agents are made once per person in
+  their workspace; the picker groups Provided, Yours and each team; Settings → Account shows the connection with
+  Disconnect. The app publishes a Client ID Metadata Document at `/oauth/client-metadata.json` (on a loopback
+  `http` APP_URL it registers itself instead). Service mode is unchanged. Admin → Usage needs service mode.
 - **Personal usage** (an optional feature, off by default): Settings → Usage shows each person their own agents'
   requests, tokens and estimated cost, per agent and per day, named as they know them.
 - **Optional features** (Admin → Features): parts of the app an instance can do without, declared in

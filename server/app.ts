@@ -15,6 +15,8 @@ import {
 } from './agent-settings.ts';
 import { type Branding, defaultBranding, parseBranding } from './branding.ts';
 import type { Config } from './config.ts';
+import { Connect, ConnectError, NotConnected } from './connect.ts';
+import { AgentProblem, WorkspaceAgents } from './connect-agents.ts';
 import { EventsHub } from './events-hub.ts';
 import {
   FEATURE_IDS,
@@ -117,12 +119,30 @@ export function safeNext(value: string | undefined | null): string {
 
 export function createApp(
   config: Config,
-  deps: { store: Store; platform?: Platform; events?: EventsHub },
+  deps: { store: Store; platform?: Platform; events?: EventsHub; connect?: Connect },
 ) {
   const { store } = deps;
   const platform = deps.platform ?? new Platform(config);
   const events = deps.events ?? new EventsHub(platform);
-  const disabledFeatures = config.disabledFeatures ?? [];
+  /** Connect mode: people's own platform accounts (connect.ts). Otherwise the team service account. */
+  const connectMode =
+    (config.platformAuth ?? (config.platformServiceKey ? 'service' : 'connect')) === 'connect';
+  const connect = connectMode
+    ? (deps.connect ?? new Connect(config, store, async () => (await branding()).name))
+    : null;
+  /** Why a feature can't be turned on here, if it can't. */
+  const lockedReasons = new Map<string, string>(
+    (config.disabledFeatures ?? []).map((id) => [
+      id,
+      'Turned off by this deployment (DISABLED_FEATURES).',
+    ]),
+  );
+  if (connectMode && !lockedReasons.has('usage'))
+    lockedReasons.set(
+      'usage',
+      "Needs the service-account mode: with Connect, people's agents are in their own workspaces, which this app's administrators don't see.",
+    );
+  const disabledFeatures = [...lockedReasons.keys()];
   /** What is on now: defaults, the administrators' choices, the environment's locks. */
   const features = async () => resolveFeatures(await store.setting('features'), disabledFeatures);
   const feature = async (id: FeatureId) => (await features())[id];
@@ -313,6 +333,9 @@ export function createApp(
         user: { id: person.id, name: person.name, email: person.email, role: person.role },
         csrfToken: session.csrf,
         features: await features(),
+        platform: connect
+          ? { mode: 'connect', account: await connect.account(person.id) }
+          : { mode: 'service', account: null },
       },
     });
   });
@@ -437,6 +460,64 @@ export function createApp(
     return c.json({ data: { ok: true } });
   });
 
+  // ---- Connect: people connect their own platform account (connect.ts) -------
+
+  const connectCookie = secure ? '__Host-pai_connect' : 'pai_connect';
+  if (connect) {
+    /** The Client ID Metadata Document: who this app is, for the platform's approval screen. */
+    app.get('/oauth/client-metadata.json', async (c) => {
+      c.header('Cache-Control', 'public, max-age=600');
+      return c.json(await connect.metadata());
+    });
+
+    /** Sends the person to the platform to connect; they come back to /connect/callback. */
+    app.get('/connect/start', requireSession, async (c) => {
+      const person = c.get('person');
+      try {
+        const { url, pending } = await connect.start(
+          person.id,
+          safeNext(c.req.query('next')),
+          person.email || undefined,
+        );
+        setCookie(c, connectCookie, pending, {
+          httpOnly: true,
+          secure,
+          sameSite: 'Lax',
+          path: '/',
+          maxAge: 600,
+        });
+        return c.redirect(url);
+      } catch (error) {
+        console.error('[connect] could not start', error);
+        const message =
+          error instanceof ConnectError
+            ? error.message
+            : 'The agent platform could not be reached.';
+        return c.redirect(`/connect?error=${encodeURIComponent(message)}`);
+      }
+    });
+
+    app.get('/connect/callback', requireSession, async (c) => {
+      const pending = getCookie(c, connectCookie);
+      deleteCookie(c, connectCookie, { path: '/', secure });
+      try {
+        const next = await connect.finish(c.get('person').id, c.req.query(), pending);
+        return c.redirect(safeNext(next));
+      } catch (error) {
+        if (!(error instanceof ConnectError)) console.error('[connect] could not finish', error);
+        const message =
+          error instanceof ConnectError ? error.message : 'Connecting failed. Try again.';
+        return c.redirect(`/connect?error=${encodeURIComponent(message)}`);
+      }
+    });
+
+    /** Disconnects: revokes the app's access on the platform and forgets the tokens. */
+    app.post('/api/me/platform/disconnect', requireSession, async (c) => {
+      await connect.disconnect(c.get('person').id);
+      return c.json({ data: { ok: true } });
+    });
+  }
+
   // ---- Administration -------------------------------------------------------
 
   app.use('/api/admin/*', requireSession, requireAdmin);
@@ -529,7 +610,7 @@ export function createApp(
       const [settings, provided, available] = await Promise.all([
         agentSettings(),
         providedAgents(),
-        offered(),
+        offered(c.get('person').id),
       ]);
       return c.json({
         data: {
@@ -558,7 +639,10 @@ export function createApp(
 
   app.put('/api/admin/settings/agents', async (c) => {
     try {
-      const parsed = parseAgentSettings(await c.req.json().catch(() => null), await offered());
+      const parsed = parseAgentSettings(
+        await c.req.json().catch(() => null),
+        await offered(c.get('person').id),
+      );
       if ('problems' in parsed) return invalid(c, parsed.problems);
       await store.setSetting('agents', parsed.value, c.get('person').id);
       return c.json({ data: parsed.value });
@@ -569,7 +653,10 @@ export function createApp(
 
   app.put('/api/admin/settings/provided', async (c) => {
     try {
-      const parsed = parseProvided(await c.req.json().catch(() => null), await offered());
+      const parsed = parseProvided(
+        await c.req.json().catch(() => null),
+        await offered(c.get('person').id),
+      );
       if ('problems' in parsed) return invalid(c, parsed.problems);
       // The built-in assistant stays first.
       const value = [
@@ -594,7 +681,8 @@ export function createApp(
         description: FEATURES[id].description,
         default: FEATURES[id].default,
         enabled: on[id],
-        locked: disabledFeatures.includes(id),
+        locked: lockedReasons.has(id),
+        lockedReason: lockedReasons.get(id) ?? null,
       })),
     });
   });
@@ -619,6 +707,31 @@ export function createApp(
       ? Number(c.req.query('days'))
       : 30;
     const { from, to } = lastDays(days);
+    if (workspace)
+      // Connect mode: the person's personal workspace's own report (their agents there).
+      try {
+        const [rows, agents] = await Promise.all([
+          workspace.usage(person, 'agent', from, to),
+          workspace.list(person),
+        ]);
+        const names = new Map(agents.map((agent) => [agent.id, agent.name]));
+        const used = usageByAgent(
+          rows.filter((row) => row.agentId),
+          (id) => names.get(id) ?? 'Agent',
+        );
+        return c.json({
+          data: {
+            from,
+            to,
+            days,
+            agents: used,
+            total: sumUsage(rows),
+            byDay: usageByDay(await workspace.usage(person, 'day', from, to), from, to),
+          },
+        });
+      } catch (error) {
+        return platformFailure(c, error);
+      }
     try {
       const [teamRows, managed, provided, mine] = await Promise.all([
         platform.usage('agent', from, to),
@@ -713,8 +826,14 @@ export function createApp(
 
   /** The platform said no to the service key: this app's configuration, not the person's session. */
   const platformFailure = (c: Context, error: unknown) => {
+    if (error instanceof NotConnected) return fail(c, 409, 'not_connected', error.message);
+    if (error instanceof AgentProblem) return fail(c, error.status, error.code, error.message);
+    if (error instanceof ConnectError) {
+      console.error('[connect]', error.code, error.message);
+      return fail(c, 502, 'platform_refused', error.message);
+    }
     if (error instanceof PlatformError) {
-      if (error.status === 401 || error.status === 403) {
+      if (!connect && (error.status === 401 || error.status === 403)) {
         console.error('[platform] the service key was refused', error.status, error.body);
         return fail(
           c,
@@ -742,9 +861,29 @@ export function createApp(
     const saved = (await store.setting('provided')) as { agents?: ProvidedAgent[] } | null;
     return saved?.agents?.length ? saved.agents : defaultProvided(config.agentName);
   };
-  /** What the platform offers this app: its team's published models and the templates it may use. */
-  const offered = async () => {
-    const [models, templates] = await Promise.all([platform.teamModels(), platform.templates()]);
+  /**
+   * Connect mode: people's agents in their personal workspaces (connect-agents.ts).
+   * Built here, after the settings it reads.
+   */
+  const workspace = connect
+    ? new WorkspaceAgents(connect, store, {
+        agentSettings: () => agentSettings(),
+        providedAgents: () => providedAgents(),
+        defaultTemplateSlug: config.agentTemplate,
+        defaultModel: config.agentModel,
+      })
+    : null;
+
+  /**
+   * What the platform offers: in service mode the team's published models and
+   * its templates; in Connect mode what a personal workspace may use, as the
+   * administrator asking sees it (their own connection).
+   */
+  const offered = async (personId?: string) => {
+    const [models, templates] =
+      workspace && personId
+        ? await Promise.all([workspace.models(personId), workspace.templates(personId)])
+        : await Promise.all([platform.teamModels(), platform.templates()]);
     return {
       models: models.filter((model) => model.enabled),
       templates,
@@ -776,6 +915,11 @@ export function createApp(
   app.get('/api/agents', async (c) => {
     const person = c.get('person');
     const who = person.name || person.email;
+    if (workspace)
+      return workspace.list(person).then(
+        (data) => c.json({ data }),
+        (error) => platformFailure(c, error),
+      );
     try {
       const [settings, provided, mine, managed] = await Promise.all([
         agentSettings(),
@@ -822,6 +966,11 @@ export function createApp(
 
   /** What a person may make agents from: the allowed templates, the models, and their limit. */
   app.get('/api/agents/catalog', async (c) => {
+    if (workspace)
+      return workspace.catalog(c.get('person')).then(
+        (data) => c.json({ data }),
+        (error) => platformFailure(c, error),
+      );
     try {
       const settings = await agentSettings();
       const [templates, models, mine] = await Promise.all([
@@ -856,6 +1005,11 @@ export function createApp(
       templateId?: unknown;
       modelId?: unknown;
     };
+    if (workspace)
+      return workspace.create(person, body).then(
+        (data) => c.json({ data }, 201),
+        (error) => platformFailure(c, error),
+      );
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name || name.length > 60)
       return fail(c, 400, 'invalid_name', 'Give the agent a name of 1 to 60 characters.');
@@ -910,6 +1064,14 @@ export function createApp(
   app.patch('/api/agents/:agentId', async (c) => {
     const person = c.get('person');
     const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; modelId?: unknown };
+    if (workspace) {
+      const agentId = c.req.param('agentId');
+      if (!UUID.test(agentId)) return fail(c, 404, 'not_found', 'Agent not found');
+      return workspace.update(person, agentId, body).then(
+        (data) => c.json({ data }),
+        (error) => platformFailure(c, error),
+      );
+    }
     try {
       const own = await ownPersonalAgent(c);
       if (!own) return fail(c, 404, 'not_found', 'Agent not found');
@@ -951,6 +1113,14 @@ export function createApp(
 
   /** Deletes one of the person's own agents and all its conversations. Provided agents cannot be deleted. */
   app.delete('/api/agents/:agentId', async (c) => {
+    if (workspace) {
+      const agentId = c.req.param('agentId');
+      if (!UUID.test(agentId)) return fail(c, 404, 'not_found', 'Agent not found');
+      return workspace.remove(c.get('person'), agentId).then(
+        () => c.json({ data: { ok: true } }),
+        (error) => platformFailure(c, error),
+      );
+    }
     try {
       const own = await ownPersonalAgent(c);
       if (!own) return fail(c, 404, 'not_found', 'Agent not found');
@@ -966,6 +1136,8 @@ export function createApp(
   app.use('/api/agents/:agentId/*', async (c, next) => {
     const agentId = c.req.param('agentId');
     if (!agentId || !UUID.test(agentId)) return fail(c, 404, 'not_found', 'Agent not found');
+    // Connect mode: the person's own token; the platform decides what they may use.
+    if (workspace) return next();
     try {
       if (!(await platform.isOwnAgent(c.get('session').user, agentId)))
         return fail(c, 404, 'not_found', 'Agent not found');
@@ -977,7 +1149,7 @@ export function createApp(
 
   /** Relays one request to the agent on the platform, passing its answer through. */
   const relay = async (
-    c: Context,
+    c: Context<Env>,
     path: string,
     init: RequestInit = {},
     /** For a stream: called once when it ends, however it ends. */
@@ -985,12 +1157,16 @@ export function createApp(
   ) => {
     let upstream: Response;
     try {
-      upstream = await platform.fetch(path, { ...init, signal: c.req.raw.signal });
+      const request = { ...init, signal: c.req.raw.signal };
+      upstream = connect
+        ? await connect.fetchAs(c.get('person').id, path, request)
+        : await platform.fetch(path, request);
     } catch (error) {
+      onStreamEnd?.();
       if (c.req.raw.signal.aborted) return new Response(null, { status: 499 });
       return platformFailure(c, error);
     }
-    if (upstream.status === 401 || upstream.status === 403)
+    if (!connect && (upstream.status === 401 || upstream.status === 403))
       return platformFailure(c, new PlatformError(upstream.status, await upstream.text()));
     const headers = new Headers();
     for (const name of ['Content-Type', 'Cache-Control', 'ETag']) {
@@ -1095,8 +1271,30 @@ export function createApp(
    * when events may have been missed and the lists should be read again.
    */
   const eventStreams = new Map<string, number>();
-  app.get('/api/events', requireSession, (c) => {
+  /**
+   * Connect mode: one stream per person, with their own token (the service
+   * account can't see personal workspaces). Each closes when its person's
+   * last tab does.
+   */
+  const personHubs = new Map<string, EventsHub>();
+  const hubFor = (personId: string): EventsHub => {
+    if (!connect) return events;
+    let hub = personHubs.get(personId);
+    if (!hub) {
+      hub = new EventsHub({
+        fetch: (path: string, init?: RequestInit) => connect.fetchAs(personId, path, init),
+        // Their own token: every event on it is about an agent they may use.
+        isOwnAgent: async () => true,
+      } as unknown as Platform);
+      personHubs.set(personId, hub);
+    }
+    return hub;
+  };
+  app.get('/api/events', requireSession, async (c) => {
     const user = c.get('session').user;
+    if (connect && !(await store.connection(c.get('person').id)))
+      return fail(c, 409, 'not_connected', 'Connect your agents to continue.');
+    const hub = hubFor(c.get('person').id);
     const open = eventStreams.get(user.id) ?? 0;
     if (open >= MAX_EVENT_STREAMS_PER_USER)
       return fail(c, 429, 'too_many_streams', 'Too many tabs are open at once.');
@@ -1114,7 +1312,7 @@ export function createApp(
             cleanup();
           }
         };
-        const unsubscribe = events.subscribe({
+        const unsubscribe = hub.subscribe({
           user,
           send: (event, data) => write(`event: ${event}\ndata: ${data}\n\n`),
         });

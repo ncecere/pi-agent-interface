@@ -13,7 +13,14 @@ const server: ProxyOptions = {
   target: `http://127.0.0.1:${process.env.PORT ?? 5178}`,
   changeOrigin: false,
 };
-const proxy = { '/api': server, '/auth': server };
+// The app's own server: its API, sign-in, and Connect (the platform's OAuth flow and this app's metadata document).
+const proxy = {
+  '/api': server,
+  '/auth': server,
+  '/connect/start': server,
+  '/connect/callback': server,
+  '/oauth': server,
+};
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

@@ -14,9 +14,19 @@ export interface Config {
   port: number;
   /** pi-durable-platform's address. */
   platformUrl: URL;
-  /** The platform team whose service account this app uses, by slug. */
+  /**
+   * How the app reaches people's agents (server/connect.ts):
+   * - `connect`: each person connects their own platform account once (OAuth
+   *   Connect); their agents live in their personal workspace and the app
+   *   calls the platform with their token.
+   * - `service`: one team service account gives each person agents in that
+   *   team (for a platform without Connect).
+   * Optional in the config file: `connect` unless a service key is set.
+   */
+  platformAuth?: 'connect' | 'service';
+  /** Service mode: the platform team whose service account this app uses, by slug. */
   platformTeam: string;
-  /** The team service account's key (role editor), `pdp_sa_…`. Never sent to browsers. */
+  /** Service mode: the team service account's key (role editor), `pdp_sa_…`. Never sent to browsers. */
   platformServiceKey: string;
   /** Platform template every person's assistant is created from; empty for the platform's default. */
   agentTemplate: string;
@@ -99,6 +109,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     problems.push('OIDC_ISSUER must use https');
 
   const platformUrl = url('PLATFORM_URL');
+  const authSetting = env.PLATFORM_AUTH?.trim();
+  if (authSetting && authSetting !== 'connect' && authSetting !== 'service')
+    problems.push('PLATFORM_AUTH is connect or service');
+  const platformAuth: 'connect' | 'service' =
+    authSetting === 'service' || authSetting === 'connect'
+      ? authSetting
+      : env.PLATFORM_SERVICE_KEY?.trim()
+        ? 'service'
+        : 'connect';
+  const serviceOnly = (name: string) =>
+    platformAuth === 'service' ? required(name) : (env[name]?.trim() ?? '');
   if (platformUrl.protocol !== 'https:' && !isLoopback(platformUrl))
     problems.push('PLATFORM_URL must use https (the service key travels with every request)');
   if (appUrl.protocol !== 'https:' && !isLoopback(appUrl))
@@ -110,8 +131,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     host: env.HOST?.trim() || '127.0.0.1',
     port: Number(env.PORT ?? 5178),
     platformUrl,
-    platformTeam: required('PLATFORM_TEAM'),
-    platformServiceKey: required('PLATFORM_SERVICE_KEY'),
+    platformAuth,
+    platformTeam: serviceOnly('PLATFORM_TEAM'),
+    platformServiceKey: serviceOnly('PLATFORM_SERVICE_KEY'),
     agentTemplate: env.AGENT_TEMPLATE?.trim() ?? '',
     agentName: env.AGENT_NAME?.trim() || 'Assistant',
     agentModel: env.AGENT_MODEL?.trim() ?? '',
