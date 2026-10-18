@@ -30,6 +30,17 @@ export function setAvatarStyle(style: AvatarStyle) {
   notify();
 }
 
+/** Back to the default: another person has signed in on this browser. */
+export function resetAvatarStyle() {
+  current = DEFAULT_STYLE;
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    // Nothing stored.
+  }
+  notify();
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener);
   // Open tabs follow each other.

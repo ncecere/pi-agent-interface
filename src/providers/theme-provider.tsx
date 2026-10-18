@@ -60,6 +60,8 @@ interface ThemeContextValue {
    * not chosen a theme; an explicit choice through setTheme always wins.
    */
   setInstanceDefaultTheme: (theme: ThemeMode) => void;
+  /** Forgets this browser's personal choices: another person has signed in. */
+  resetPersonal: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -140,6 +142,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setInvertSendState(enabled);
   }, []);
 
+  const resetPersonal = useCallback(() => {
+    for (const key of [
+      THEME_STORAGE_KEY,
+      CODE_WRAP_STORAGE_KEY,
+      INVERT_SEND_STORAGE_KEY,
+      COLOR_THEME_STORAGE_KEY,
+    ])
+      localStorage.removeItem(key);
+    setUserTheme(null);
+    setCodeWrapState(false);
+    setInvertSendState(false);
+    setColorThemeState('neutral');
+  }, []);
+
   const setColorTheme = useCallback((next: ColorTheme) => {
     localStorage.setItem(COLOR_THEME_STORAGE_KEY, next);
     setColorThemeState(next);
@@ -159,8 +175,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setInvertSend,
       setColorTheme,
       setInstanceDefaultTheme,
+      resetPersonal,
     }),
     [
+      resetPersonal,
       theme,
       resolvedTheme,
       codeWrap,
