@@ -234,3 +234,106 @@ describe('reconcile and stable identity', () => {
     expect(reconcile(failed, transcript)).toBe(failed);
   });
 });
+
+describe('what the platform records about messages', () => {
+  const recorded: ChatView = {
+    busy: false,
+    tools: [],
+    messages: [
+      { id: 'u1', role: 'user', text: 'What time is it?', at: 1_000 },
+      {
+        id: 'a1',
+        role: 'assistant',
+        text: '',
+        at: 2_000,
+        model: { provider: 'omg', id: 'gpt-oss-120b' },
+        usage: { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, total: 120 },
+        stopReason: 'toolUse',
+        toolCalls: [
+          { id: 'c1', name: 'get_time', arguments: {}, startedAt: 2_500, endedAt: 4_800 },
+        ],
+      },
+      {
+        id: 't1',
+        role: 'tool',
+        toolCallId: 'c1',
+        name: 'get_time',
+        text: '3:31 PM',
+        isError: false,
+        at: 4_800,
+      },
+      {
+        id: 'a2',
+        role: 'assistant',
+        text: 'It is 3:31 PM.',
+        at: 5_000,
+        model: { provider: 'omg', id: 'gpt-oss-120b' },
+        usage: { input: 150, output: 30, cacheRead: 50, cacheWrite: 0, total: 230 },
+        stopReason: 'stop',
+      },
+    ],
+  };
+
+  it('carries when a message was sent', () => {
+    const [user] = viewToMessages(recorded);
+    expect(user?.metadata).toEqual({ at: 1_000 });
+  });
+
+  it('adds up a reply’s steps: its start, the model that finished it, tokens, and why it ended', () => {
+    const reply = viewToMessages(recorded)[1]!;
+    expect(reply.metadata).toMatchObject({
+      at: 2_000,
+      model: 'gpt-oss-120b',
+      stopReason: 'stop',
+      usage: { input: 250, output: 50, cacheRead: 50, cacheWrite: 0, total: 350 },
+    });
+  });
+
+  it('keeps a tool call’s timing with it, through its result arriving', () => {
+    const reply = viewToMessages(recorded)[1]!;
+    const tool = reply.parts.find((part) => part.type === 'dynamic-tool') as {
+      state: string;
+      toolMetadata?: { startedAt: number; endedAt: number };
+    };
+    expect(tool.state).toBe('output-available');
+    expect(tool.toolMetadata).toEqual({ startedAt: 2_500, endedAt: 4_800 });
+  });
+
+  it('keeps a failed reply’s status beside what was recorded', () => {
+    const failed: ChatView = {
+      busy: false,
+      tools: [],
+      messages: [
+        { id: 'u', role: 'user', text: 'hi' },
+        {
+          id: 'a',
+          role: 'assistant',
+          text: '',
+          error: '429: Too Many Requests',
+          at: 7,
+          model: { provider: 'p', id: 'm' },
+        },
+      ],
+    };
+    expect(viewToMessages(failed)[1]?.metadata).toMatchObject({
+      status: 'error',
+      errorMessage: '429: Too Many Requests',
+      at: 7,
+      model: 'm',
+    });
+  });
+
+  it('is unchanged for a platform that records nothing', () => {
+    const plain: ChatView = {
+      busy: false,
+      tools: [],
+      messages: [
+        { id: 'u', role: 'user', text: 'hi' },
+        { id: 'a', role: 'assistant', text: 'hello' },
+      ],
+    };
+    const [user, reply] = viewToMessages(plain);
+    expect(user?.metadata).toBeUndefined();
+    expect(reply?.metadata).toEqual({});
+  });
+});

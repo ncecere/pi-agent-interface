@@ -124,6 +124,73 @@ const toPerson = (row: PersonRow): Person => ({
 });
 
 /** Applies the migrations not yet applied, holding a lock so replicas starting together do not race. */
+/** Errors that mean "the database is not reachable yet" (starting up, a network not ready), not "this is misconfigured". */
+const NOT_YET = new Set([
+  'ECONNREFUSED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'CONNECT_TIMEOUT',
+  'CONNECTION_CLOSED',
+  'CONNECTION_ENDED',
+  '57P03', // the database system is starting up
+  '53300', // too many connections
+]);
+
+function isNotYet(error: unknown): boolean {
+  const e = error as { code?: string; errors?: unknown[] } | null;
+  if (!e) return false;
+  if (e.code && NOT_YET.has(e.code)) return true;
+  // An address that resolves several ways reports each failure: all must be "not yet".
+  return Array.isArray(e.errors) && e.errors.length > 0 && e.errors.every(isNotYet);
+}
+
+/**
+ * Waits for the database to answer, for up to `timeoutMs` (default three
+ * minutes). A pod that starts beside its database (a first deploy, a restart
+ * of the node) would otherwise exit and be restarted until it came up. Only
+ * "not reachable yet" errors are waited out: a wrong password or a database
+ * that does not exist fails at once, with the database's own message.
+ */
+export async function waitForDatabase(
+  sql: Sql,
+  options: {
+    timeoutMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+    log?: (message: string) => void;
+  } = {},
+): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 180_000;
+  const sleep =
+    options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const log = options.log ?? ((message: string) => console.log(message));
+  const started = now();
+  let wait = 500;
+  let told = false;
+  for (;;) {
+    try {
+      await sql`select 1`;
+      if (told)
+        log(`[server] the database answered after ${Math.round((now() - started) / 1000)}s`);
+      return;
+    } catch (error) {
+      if (!isNotYet(error)) throw error;
+      if (now() - started >= timeoutMs)
+        throw new Error(
+          `The database did not answer within ${Math.round(timeoutMs / 1000)}s: ${(error as Error).message}`,
+        );
+      if (!told) log('[server] waiting for the database…');
+      told = true;
+      await sleep(wait);
+      wait = Math.min(wait * 2, 5_000);
+    }
+  }
+}
+
 export async function migrate(sql: Sql): Promise<number[]> {
   const applied: number[] = [];
   await sql.begin(async (tx) => {

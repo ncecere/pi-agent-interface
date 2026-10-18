@@ -4,6 +4,22 @@
 
 Nothing yet.
 
+## 0.3.0
+
+Released 2026-10-18. What the platform now records shows with each message, and the app waits for its database.
+
+- **When, which model, how many tokens.** Hover a message to see when it was sent. Under a finished reply you also
+  see the model that wrote it and the tokens it used (summed over its steps), with the split (in, out, read from
+  cache) in the tooltip. The platform records these from its next release on; against an older platform nothing
+  extra is shown.
+- **Tool steps show how long they ran** ("56 ms", "2.3 s"), from the platform's start and end times for the call.
+- **A reply cut off at the model's length limit says so**, so a half-finished answer isn't mistaken for a finished one.
+- **The app waits for its database on start** (up to three minutes) instead of exiting and being restarted until the
+  database answers, as happened on a first deployment. Only "not reachable yet" errors are waited out: a wrong
+  password or a missing database still fails at once, with the database's own message.
+- Admin → Agents says, in Connect mode, that the models and templates it lists are the ones the administrator's own
+  workspace offers.
+
 ## 0.2.1
 
 Released 2026-10-18. Fixes found while writing the documentation.

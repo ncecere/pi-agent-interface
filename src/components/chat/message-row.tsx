@@ -19,6 +19,7 @@ import { WorkBlock } from '~/components/chat/reply-work';
 import type { ToolPart } from '~/components/chat/tool-steps';
 import type { ReplyMetadata } from '~/lib/chat-view';
 import { messageExcerpt } from '~/lib/message-excerpt';
+import { replyInfo } from '~/lib/reply-meta';
 import { cn } from '~/lib/utils';
 import { isToolPart } from '~/shared';
 
@@ -97,7 +98,11 @@ export const MessageRow = memo(function MessageRow({
             {PENDING_NOTE[pending]}
           </p>
         ) : (
-          <MessageActions text={text} position={place} />
+          <MessageActions
+            text={text}
+            position={place}
+            info={replyInfo(message.metadata as ReplyMetadata | undefined)}
+          />
         )}
       </article>
     );
@@ -106,6 +111,7 @@ export const MessageRow = memo(function MessageRow({
   const interruption = interruptionOf(message);
   const failure = streaming ? null : failureOf(message);
   const stopped = !streaming && stoppedOf(message);
+  const limited = (message.metadata as ReplyMetadata | undefined)?.stopReason === 'length';
 
   return (
     <article
@@ -151,7 +157,21 @@ export const MessageRow = memo(function MessageRow({
             {stoppedNoteOf(message, text)}
           </p>
         )}
-        {!streaming && <MessageActions text={text} position={place} onRetry={onRetry} />}
+        {!streaming && (
+          <>
+            {limited && (
+              <p role="note" className="mb-1 text-xs text-[var(--text-muted)]">
+                The model stopped at its length limit, so this reply may be cut short.
+              </p>
+            )}
+            <MessageActions
+              text={text}
+              position={place}
+              onRetry={onRetry}
+              info={replyInfo(message.metadata as ReplyMetadata | undefined)}
+            />
+          </>
+        )}
       </div>
     </article>
   );

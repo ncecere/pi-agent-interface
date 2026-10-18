@@ -8,8 +8,11 @@ export function MessageActions({
   text,
   onRetry,
   position,
+  info,
 }: {
   text: string;
+  /** When, and for a reply which model and how many tokens (reply-meta.ts), beside the controls. */
+  info?: { text: string; title: string } | null;
   /** Sends the question this reply answered again. */
   onRetry?: () => void;
   /** Its place, when another message opens with the same words: "reply 3". */
@@ -20,7 +23,7 @@ export function MessageActions({
   const excerpt = useMemo(() => messageExcerpt(text), [text]);
   const about = excerpt ? ` ${quotedMessage(excerpt, position)}` : '';
 
-  if (!text.trim() && !onRetry) return null;
+  if (!text.trim() && !onRetry && !info) return null;
   return (
     <div
       className={cn(
@@ -52,6 +55,14 @@ export function MessageActions({
         >
           <RefreshCw />
         </Button>
+      )}
+      {info && (
+        <span
+          className="ml-1.5 cursor-default whitespace-nowrap text-xs tabular-nums text-[var(--text-muted)]"
+          title={info.title}
+        >
+          {info.text}
+        </span>
       )}
     </div>
   );

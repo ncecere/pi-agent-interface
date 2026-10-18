@@ -23,6 +23,7 @@ import {
   useSaveAgentSettings,
   useSaveProvided,
 } from '~/hooks/use-admin';
+import { useCurrentUser } from '~/hooks/use-session';
 import { usePageTitle } from '~/lib/document-title';
 
 const FIELD =
@@ -402,11 +403,16 @@ function ProvidedList({ data }: { data: AgentsAdmin }) {
 export function AdminAgentsPage() {
   usePageTitle('Agents · Admin');
   const { data, error } = useAgentsAdmin();
+  const connect = useCurrentUser()?.platform?.mode === 'connect';
   return (
     <>
       <AdminHeader
         title="Agents"
-        description="Which agents people have and what they run on. The agents live on the agent platform; models and templates are the ones it offers this app's team."
+        description={
+          connect
+            ? 'Which agents people have and what they run on. The agents live on the agent platform, in each person’s own workspace. The models and templates below are the ones your own workspace offers, as a guide: each person gets what theirs offers, and an agent that cannot be made in someone’s workspace is skipped for them.'
+            : "Which agents people have and what they run on. The agents live on the agent platform; models and templates are the ones it offers this app's team."
+        }
       />
       {error ? (
         <p

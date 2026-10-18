@@ -45,6 +45,14 @@ export interface ReplyMetadata {
   errorMessage?: string;
   /** For a user message from this tab: where it is. */
   pending?: Exclude<PendingMessage['state'], 'failed' | 'confirmed'>;
+  /** When the message was sent, or the reply began (Unix ms), as the platform records it. */
+  at?: number;
+  /** For a reply: the model that wrote it (its last step's). */
+  model?: string;
+  /** For a reply: tokens used, summed over its steps. */
+  usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  /** For a reply: why its last step ended (`length`: it hit the model's output limit). */
+  stopReason?: string;
 }
 
 export type AgentUIMessage = UIMessage<ReplyMetadata>;
@@ -83,6 +91,8 @@ export function toolOutputText(part: Record<string, unknown>): string | null {
 interface Reply {
   message: AgentUIMessage;
   tools: Map<string, DynamicToolUIPart>;
+  /** What the steps recorded, accumulated: merged into the reply's metadata after each step. */
+  recorded: Pick<ReplyMetadata, 'at' | 'model' | 'usage' | 'stopReason'>;
 }
 
 export function viewToMessages(
@@ -103,6 +113,7 @@ export function viewToMessages(
       reply = {
         message: { id: replyIdFor(turn), role: 'assistant', parts: [], metadata: {} },
         tools: new Map(),
+        recorded: {},
       };
       messages.push(reply.message);
     }
@@ -117,6 +128,7 @@ export function viewToMessages(
         id: alias.get(message.id) ?? message.id,
         role: 'user',
         parts: [{ type: 'text', text: message.text ?? '' }],
+        ...(typeof message.at === 'number' ? { metadata: { at: message.at } } : {}),
       });
     } else if (message.role === 'assistant') {
       addAssistantStep(currentReply(), message);
@@ -178,17 +190,42 @@ function addAssistantStep(reply: Reply, message: ChatViewMessage) {
       toolCallId: call.id,
       state: 'input-available',
       input: call.arguments ?? {},
+      ...(call.startedAt !== undefined
+        ? { toolMetadata: { startedAt: call.startedAt, endedAt: call.endedAt } }
+        : {}),
     };
     reply.tools.set(call.id, part);
     parts.push(part);
   }
   // The latest step decides how the reply ended: a failure, then a retry that
   // worked, is a reply that worked.
-  reply.message.metadata = message.error
-    ? message.error === 'Interrupted'
-      ? { status: 'cancelled' }
-      : { status: 'error', errorMessage: message.error }
-    : {};
+  reply.message.metadata = {
+    ...(message.error
+      ? message.error === 'Interrupted'
+        ? { status: 'cancelled' as const }
+        : { status: 'error' as const, errorMessage: message.error }
+      : {}),
+    ...recordStep(reply, message),
+  };
+}
+
+/** Adds one step's `at`, model, tokens and stop reason to the reply's record, and returns the record. */
+function recordStep(reply: Reply, message: ChatViewMessage): Reply['recorded'] {
+  const recorded = reply.recorded;
+  if (typeof message.at === 'number' && recorded.at === undefined) recorded.at = message.at;
+  if (message.model?.id) recorded.model = message.model.id;
+  if (message.usage) {
+    const sum = recorded.usage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+    recorded.usage = {
+      input: sum.input + (message.usage.input ?? 0),
+      output: sum.output + (message.usage.output ?? 0),
+      cacheRead: sum.cacheRead + (message.usage.cacheRead ?? 0),
+      cacheWrite: sum.cacheWrite + (message.usage.cacheWrite ?? 0),
+      total: sum.total + (message.usage.total ?? 0),
+    };
+  }
+  if (message.stopReason) recorded.stopReason = message.stopReason;
+  return { ...recorded };
 }
 
 function addToolResult(reply: Reply, message: ChatViewMessage) {
@@ -200,6 +237,8 @@ function addToolResult(reply: Reply, message: ChatViewMessage) {
     toolName: existing?.toolName ?? message.name ?? 'tool',
     toolCallId: id,
     input: existing?.input ?? {},
+    // Its timing, from the call, stays with it when the result arrives.
+    ...(existing?.toolMetadata ? { toolMetadata: existing.toolMetadata } : {}),
   };
   const done: DynamicToolUIPart = message.isError
     ? { ...base, state: 'output-error', errorText: text || 'The tool failed.' }

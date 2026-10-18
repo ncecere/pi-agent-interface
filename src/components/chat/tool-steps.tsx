@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useId, useState } from 'react';
 import { toolOutputText } from '~/lib/chat-view';
+import { formatDuration } from '~/lib/reply-meta';
 import { cn } from '~/lib/utils';
 import { isToolPart, summarizeToolPart, type ToolStepSummary } from '~/shared';
 
@@ -228,6 +229,16 @@ function ToolOutput({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
   );
 }
 
+/** How long a finished call ran, from the platform's start and end times; null when it does not say. */
+export function toolDuration(part: ToolPart): number | null {
+  const timing = part.toolMetadata as { startedAt?: unknown; endedAt?: unknown } | undefined;
+  return typeof timing?.startedAt === 'number' &&
+    typeof timing.endedAt === 'number' &&
+    timing.endedAt >= timing.startedAt
+    ? timing.endedAt - timing.startedAt
+    : null;
+}
+
 /** What the tool acted on, for the row: the command, the file, the query. */
 const hintOf = (part: ToolPart) => inputHint(part.input);
 
@@ -253,6 +264,7 @@ function StepIcon({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
 /** One line for a step: icon, tool, what it acted on, and how it went. */
 function StepLine({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
   const hint = hintOf(part);
+  const took = toolDuration(part);
   return (
     <>
       <StepIcon part={part} step={step} />
@@ -264,6 +276,11 @@ function StepLine({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
       )}
       {step.state === 'error' && (
         <span className="shrink-0 text-[var(--danger-on-tint)]">failed</span>
+      )}
+      {took !== null && (
+        <span className="shrink-0 text-[0.75rem] tabular-nums opacity-70" title="How long it ran">
+          {formatDuration(took)}
+        </span>
       )}
       {step.state === 'denied' && <span className="shrink-0">not run</span>}
     </>

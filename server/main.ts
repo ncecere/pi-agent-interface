@@ -4,11 +4,12 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './app.ts';
 import { loadConfig, loadEnvFiles } from './config.ts';
-import { migrate, PgStore } from './store-pg.ts';
+import { migrate, PgStore, waitForDatabase } from './store-pg.ts';
 
 loadEnvFiles();
 const config = loadConfig();
 const store = PgStore.connect(config.databaseUrl);
+await waitForDatabase(store.sql);
 const applied = await migrate(store.sql);
 if (applied.length) console.log(`[server] database migrated: ${applied.join(', ')}`);
 const app = createApp(config, { store });
