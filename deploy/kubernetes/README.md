@@ -13,7 +13,7 @@ What an overlay adds:
    ```yaml
    images:
      - name: ghcr.io/ncecere/pi-agent-interface
-       newTag: v0.2.0
+       newTag: v0.2.1
        digest: sha256:<digest>
    ```
 

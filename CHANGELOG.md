@@ -4,6 +4,19 @@
 
 Nothing yet.
 
+## 0.2.1
+
+Released 2026-10-18. Fixes found while writing the documentation.
+
+- **Settings → My agents**: a team's agents no longer appear under "Provided for you"; they have their own "From
+  your teams" section.
+- **Settings → Account**: the agent platform card no longer shows a connection date (the time it held was the last
+  token renewal, not when you connected).
+- **`DEV_ACCOUNTS`**: with `DEV_AUTH=true`, choose the development accounts offered instead of tim, bob and sally.
+  Development only; ignored while `DEV_AUTH` is off.
+- The 0.2.0 release notes said the database "gains two migrations". 0.1.0 had no database: 0.2.0 adds it
+  (`DATABASE_URL`, three migrations). The 0.2.0 notes are corrected.
+
 ## 0.2.0
 
 Released 2026-10-18. People connect their own agent platform account, the app gains an administration area, settings,
