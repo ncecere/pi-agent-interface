@@ -22,6 +22,8 @@ const config = (agentModel: string): Config => ({
   oidc: null,
   devAuth: true,
   staticDir: null,
+  databaseUrl: '',
+  initialAdminEmail: null,
 });
 
 /** A platform with one team, its published models, and (optionally) Tim's assistant already made. */

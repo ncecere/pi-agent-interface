@@ -35,6 +35,10 @@ export interface Config {
   devAuth: boolean;
   /** Serve the built web app from here (production). */
   staticDir: string | null;
+  /** The chat app's own Postgres: people, roles, settings, preferences. */
+  databaseUrl: string;
+  /** Becomes an administrator on signing in while there is no administrator (the bootstrap). */
+  initialAdminEmail: string | null;
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -113,6 +117,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     oidc,
     devAuth,
     staticDir: env.STATIC_DIR?.trim() || null,
+    databaseUrl: required('DATABASE_URL'),
+    initialAdminEmail: env.INITIAL_ADMIN_EMAIL?.trim() || null,
   };
   if (problems.length) throw new Error(`Configuration:\n  - ${problems.join('\n  - ')}`);
   return config;

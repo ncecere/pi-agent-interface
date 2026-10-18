@@ -4,10 +4,14 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './app.ts';
 import { loadConfig, loadEnvFiles } from './config.ts';
+import { migrate, PgStore } from './store-pg.ts';
 
 loadEnvFiles();
 const config = loadConfig();
-const app = createApp(config);
+const store = PgStore.connect(config.databaseUrl);
+const applied = await migrate(store.sql);
+if (applied.length) console.log(`[server] database migrated: ${applied.join(', ')}`);
+const app = createApp(config, { store });
 
 // Production: the built web app, with every other path answered by index.html
 // (the router decides). In development Vite serves it and proxies here.
@@ -37,4 +41,8 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.hos
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
-  process.on(signal, () => server.close(() => process.exit(0)));
+  process.on(signal, () =>
+    server.close(() => {
+      void store.close().finally(() => process.exit(0));
+    }),
+  );

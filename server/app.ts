@@ -13,6 +13,7 @@ import {
   type User,
   userIdFor,
 } from './session.ts';
+import { type Person, type Role, type Status, type Store, StoreError } from './store.ts';
 
 /** Fixed development accounts (DEV_AUTH, loopback only). */
 export const DEV_ACCOUNTS = [
@@ -65,7 +66,10 @@ export function tolerant(
   });
 }
 
-type Env = { Variables: { session: Session } };
+type Env = { Variables: { session: Session; person: Person } };
+
+/** How long a person's record is trusted before it is read again (role, suspension, sign-out everywhere). */
+const PERSON_TTL_MS = 10_000;
 
 const fail = (c: Context, status: number, code: string, message: string) =>
   c.json({ error: { code, message } }, status as 400);
@@ -77,7 +81,9 @@ export function safeNext(value: string | undefined | null): string {
     : '/';
 }
 
-export function createApp(config: Config, platform = new Platform(config)) {
+export function createApp(config: Config, deps: { store: Store; platform?: Platform }) {
+  const { store } = deps;
+  const platform = deps.platform ?? new Platform(config);
   const app = new Hono<Env>();
   const secure = config.appUrl.protocol === 'https:';
   const sessionCookie = secure ? '__Host-pai_session' : 'pai_session';
@@ -106,12 +112,15 @@ export function createApp(config: Config, platform = new Platform(config)) {
     return session && session.expiresAt > now() ? session : null;
   };
 
-  const startSession = (c: Context, user: User) => {
+  const startSession = (c: Context, person: Person) => {
+    const user: User = { id: person.id, name: person.name, email: person.email };
     const session: Session = {
       user,
       csrf: token(),
       expiresAt: now() + config.sessionTtlSeconds,
+      v: person.sessionVersion,
     };
+    people.set(person.id, { person, at: Date.now() });
     setCookie(c, sessionCookie, sessions.seal(session), {
       httpOnly: true,
       secure,
@@ -121,6 +130,46 @@ export function createApp(config: Config, platform = new Platform(config)) {
     });
   };
 
+  // The people behind sessions, read again every few seconds so a change of role,
+  // a suspension or "sign out everywhere" takes effect without a database read on every request.
+  const people = new Map<string, { person: Person | null; at: number }>();
+  const personFor = async (id: string): Promise<Person | null> => {
+    const known = people.get(id);
+    if (known && Date.now() - known.at < PERSON_TTL_MS) return known.person;
+    const person = await store.person(id);
+    people.set(id, { person, at: Date.now() });
+    return person;
+  };
+  const forget = (id: string) => people.delete(id);
+
+  /** The signed-in person, or why there is none. A suspended person or an ended session is signed out. */
+  const current = async (
+    c: Context,
+  ): Promise<
+    { session: Session; person: Person } | { status: 401 | 403; code: string; message: string }
+  > => {
+    const session = readSession(c);
+    if (!session) return { status: 401, code: 'unauthorized', message: 'Sign in to continue' };
+    const person = await personFor(session.user.id);
+    if (!person || person.sessionVersion !== session.v) {
+      deleteCookie(c, sessionCookie, { path: '/', secure });
+      return {
+        status: 401,
+        code: 'unauthorized',
+        message: 'Your session has ended. Sign in again.',
+      };
+    }
+    if (person.status === 'suspended') {
+      deleteCookie(c, sessionCookie, { path: '/', secure });
+      return {
+        status: 403,
+        code: 'suspended',
+        message: 'Your account is suspended. Ask an administrator.',
+      };
+    }
+    return { session, person };
+  };
+
   /** Writes come only from this app's own pages: same Origin, and the session's token. */
   const sameOrigin = (c: Context) => {
     const origin = c.req.header('Origin');
@@ -128,8 +177,9 @@ export function createApp(config: Config, platform = new Platform(config)) {
   };
 
   const requireSession: MiddlewareHandler<Env> = async (c, next) => {
-    const session = readSession(c);
-    if (!session) return fail(c, 401, 'unauthorized', 'Sign in to continue');
+    const found = await current(c);
+    if (!('session' in found)) return fail(c, found.status, found.code, found.message);
+    const { session, person } = found;
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       if (!sameOrigin(c) || c.req.header('X-CSRF-Token') !== session.csrf)
         return fail(
@@ -140,6 +190,12 @@ export function createApp(config: Config, platform = new Platform(config)) {
         );
     }
     c.set('session', session);
+    c.set('person', person);
+    await next();
+  };
+
+  const requireAdmin: MiddlewareHandler<Env> = async (c, next) => {
+    if (c.get('person').role !== 'admin') return fail(c, 403, 'forbidden', 'Administrators only');
     await next();
   };
 
@@ -157,6 +213,16 @@ export function createApp(config: Config, platform = new Platform(config)) {
 
   /** For a container's or a load balancer's health check: the server is up (it does not call the platform). */
   app.get('/healthz', (c) => c.json({ ok: true }));
+
+  /** Ready for traffic: the database answers. */
+  app.get('/readyz', async (c) => {
+    try {
+      await store.person('readyz');
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ ok: false }, 503);
+    }
+  });
 
   // ---- Sign-in ------------------------------------------------------------
 
@@ -176,13 +242,28 @@ export function createApp(config: Config, platform = new Platform(config)) {
     }),
   );
 
-  app.get('/api/me', (c) => {
-    const session = readSession(c);
-    if (!session) {
-      if (c.req.query('optional') === 'true') return c.json({ data: null });
-      return fail(c, 401, 'unauthorized', 'Sign in to continue');
+  app.get('/api/me', async (c) => {
+    const found = await current(c);
+    if (!('session' in found)) {
+      if (found.status === 401 && c.req.query('optional') === 'true') return c.json({ data: null });
+      return fail(c, found.status, found.code, found.message);
     }
-    return c.json({ data: { user: session.user, csrfToken: session.csrf } });
+    const { session, person } = found;
+    return c.json({
+      data: {
+        user: { id: person.id, name: person.name, email: person.email, role: person.role },
+        csrfToken: session.csrf,
+      },
+    });
+  });
+
+  /** Ends every session of the signed-in person, this one included. */
+  app.post('/api/me/sign-out-everywhere', requireSession, async (c) => {
+    const person = c.get('person');
+    await store.endSessions(person.id, person.id);
+    forget(person.id);
+    deleteCookie(c, sessionCookie, { path: '/', secure });
+    return c.json({ data: { ok: true } });
   });
 
   app.post('/auth/dev', async (c) => {
@@ -191,7 +272,13 @@ export function createApp(config: Config, platform = new Platform(config)) {
     const body = (await c.req.json().catch(() => ({}))) as { account?: unknown };
     const account = DEV_ACCOUNTS.find((candidate) => candidate.id === body.account);
     if (!account) return fail(c, 400, 'unknown_account', 'Unknown development account');
-    startSession(c, { id: userIdFor('dev', account.id), name: account.name, email: account.email });
+    const person = await store.signIn(
+      { id: userIdFor('dev', account.id), name: account.name, email: account.email },
+      config.initialAdminEmail,
+    );
+    if (person.status === 'suspended')
+      return fail(c, 403, 'suspended', 'Your account is suspended. Ask an administrator.');
+    startSession(c, person);
     return c.json({ data: { ok: true } });
   });
 
@@ -246,7 +333,12 @@ export function createApp(config: Config, platform = new Platform(config)) {
         (typeof claims.name === 'string' && claims.name) ||
         (typeof claims.preferred_username === 'string' && claims.preferred_username) ||
         email;
-      startSession(c, { id: userIdFor(claims.iss, claims.sub), name, email });
+      const person = await store.signIn(
+        { id: userIdFor(claims.iss, claims.sub), name, email },
+        config.initialAdminEmail,
+      );
+      if (person.status === 'suspended') return c.redirect('/sign-in?error=suspended');
+      startSession(c, person);
       return c.redirect(login.next);
     } catch (error) {
       console.error('[auth] sign-in failed', error);
@@ -260,6 +352,60 @@ export function createApp(config: Config, platform = new Platform(config)) {
       return fail(c, 403, 'csrf_failed', 'Invalid request token or origin.');
     deleteCookie(c, sessionCookie, { path: '/', secure });
     return c.json({ data: { ok: true } });
+  });
+
+  // ---- Administration -------------------------------------------------------
+
+  app.use('/api/admin/*', requireSession, requireAdmin);
+
+  const personView = (person: Person) => ({
+    id: person.id,
+    email: person.email,
+    name: person.name,
+    role: person.role,
+    status: person.status,
+    createdAt: person.createdAt.toISOString(),
+    lastSeenAt: person.lastSeenAt?.toISOString() ?? null,
+  });
+
+  app.get('/api/admin/people', async (c) => {
+    const people = await store.people(c.req.query('search') ?? undefined);
+    return c.json({ data: people.map(personView) });
+  });
+
+  app.patch('/api/admin/people/:id', async (c) => {
+    const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => ({}))) as { role?: unknown; status?: unknown };
+    const change: { role?: Role; status?: Status } = {};
+    if (body.role !== undefined) {
+      if (body.role !== 'admin' && body.role !== 'user')
+        return fail(c, 400, 'invalid_role', 'role is admin or user');
+      change.role = body.role;
+    }
+    if (body.status !== undefined) {
+      if (body.status !== 'active' && body.status !== 'suspended')
+        return fail(c, 400, 'invalid_status', 'status is active or suspended');
+      change.status = body.status;
+    }
+    const actor = c.get('person');
+    if (id === actor.id && change.status === 'suspended')
+      return fail(c, 400, 'self_suspend', "You can't suspend yourself.");
+    try {
+      const person = await store.updatePerson(id, change, actor.id);
+      forget(id);
+      return c.json({ data: personView(person) });
+    } catch (error) {
+      if (error instanceof StoreError)
+        return fail(c, error.code === 'not_found' ? 404 : 409, error.code, error.message);
+      throw error;
+    }
+  });
+
+  app.get('/api/admin/audit', async (c) => {
+    const entries = await store.audit(Number(c.req.query('limit') ?? 100) || 100);
+    return c.json({
+      data: entries.map((entry) => ({ ...entry, at: entry.at.toISOString() })),
+    });
   });
 
   // ---- Agents ---------------------------------------------------------------

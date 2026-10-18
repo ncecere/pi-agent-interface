@@ -9,6 +9,7 @@ import {
   type PlatformAgent,
 } from '../../server/platform.ts';
 import { userIdFor } from '../../server/session.ts';
+import { MemoryStore } from '../../server/store.ts';
 
 const config: Config = {
   appUrl: new URL('http://localhost:5177'),
@@ -25,6 +26,8 @@ const config: Config = {
   oidc: null,
   devAuth: true,
   staticDir: null,
+  databaseUrl: '',
+  initialAdminEmail: null,
 };
 
 const TIM_AGENT = '11111111-1111-4111-8111-111111111111';
@@ -84,7 +87,7 @@ let platform: ReturnType<typeof fakePlatform>;
 let app: ReturnType<typeof createApp>;
 beforeEach(() => {
   platform = fakePlatform();
-  app = createApp(config, platform as unknown as Platform);
+  app = createApp(config, { store: new MemoryStore(), platform: platform as unknown as Platform });
 });
 
 /** Signs in as a development account; returns its cookie and CSRF token. */
@@ -194,7 +197,10 @@ describe('sessions and writes', () => {
       body: '{"account":"tim"}',
     });
     expect(cross.status).toBe(403);
-    const off = createApp({ ...config, devAuth: false }, platform as unknown as Platform);
+    const off = createApp(
+      { ...config, devAuth: false },
+      { store: new MemoryStore(), platform: platform as unknown as Platform },
+    );
     const response = await off.request('/auth/dev', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -259,5 +265,126 @@ describe('streams', () => {
   it('never caches API answers', async () => {
     const response = await app.request('/api/me?optional=true');
     expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+});
+
+describe('roles', () => {
+  let store: MemoryStore;
+  const as = async (account: 'tim' | 'bob') => {
+    const response = await app.request('/auth/dev', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5177' },
+      body: JSON.stringify({ account }),
+    });
+    const cookie = response.headers.get('set-cookie')!.split(';')[0]!;
+    const me = await (await app.request('/api/me', { headers: { Cookie: cookie } })).json();
+    const headers = {
+      Cookie: cookie,
+      'X-CSRF-Token': me.data.csrfToken,
+      Origin: 'http://localhost:5177',
+      'Content-Type': 'application/json',
+    };
+    return { cookie, headers, me: me.data };
+  };
+  const patch = (headers: Record<string, string>, id: string, body: unknown) =>
+    app.request(`/api/admin/people/${id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+  beforeEach(() => {
+    store = new MemoryStore();
+    app = createApp(
+      { ...config, initialAdminEmail: 'tim@example.test' },
+      { store, platform: platform as unknown as Platform },
+    );
+  });
+
+  it('makes the initial admin an administrator, and says so in /api/me', async () => {
+    expect((await as('tim')).me.user.role).toBe('admin');
+    expect((await as('bob')).me.user.role).toBe('user');
+  });
+
+  it('keeps administration to administrators', async () => {
+    const bob = await as('bob');
+    expect(
+      (await app.request('/api/admin/people', { headers: { Cookie: bob.cookie } })).status,
+    ).toBe(403);
+    const tim = await as('tim');
+    const people = await (
+      await app.request('/api/admin/people', { headers: { Cookie: tim.cookie } })
+    ).json();
+    expect(people.data.map((person: { email: string }) => person.email).sort()).toEqual([
+      'bob@example.test',
+      'tim@example.test',
+    ]);
+  });
+
+  it('promotes, and the new role applies to the person’s next request', async () => {
+    const tim = await as('tim');
+    const bob = await as('bob');
+    expect((await patch(tim.headers, bob.me.user.id, { role: 'admin' })).status).toBe(200);
+    expect(
+      (await app.request('/api/admin/people', { headers: { Cookie: bob.cookie } })).status,
+    ).toBe(200);
+  });
+
+  it('signs a suspended person out at once, and refuses them sign-in', async () => {
+    const tim = await as('tim');
+    const bob = await as('bob');
+    expect((await patch(tim.headers, bob.me.user.id, { status: 'suspended' })).status).toBe(200);
+    const after = await app.request('/api/agents', { headers: { Cookie: bob.cookie } });
+    expect(after.status).toBe(401); // the suspension ended the session
+    const again = await app.request('/auth/dev', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5177' },
+      body: JSON.stringify({ account: 'bob' }),
+    });
+    expect(again.status).toBe(403);
+    expect((await again.json()).error.code).toBe('suspended');
+  });
+
+  it('never leaves no administrator, and an admin cannot suspend themselves', async () => {
+    const tim = await as('tim');
+    const demote = await patch(tim.headers, tim.me.user.id, { role: 'user' });
+    expect(demote.status).toBe(409);
+    expect((await demote.json()).error.code).toBe('last_admin');
+    expect((await patch(tim.headers, tim.me.user.id, { status: 'suspended' })).status).toBe(400);
+  });
+
+  it('refuses nonsense', async () => {
+    const tim = await as('tim');
+    expect((await patch(tim.headers, tim.me.user.id, { role: 'owner' })).status).toBe(400);
+    expect((await patch(tim.headers, 'nobody', { role: 'admin' })).status).toBe(404);
+  });
+
+  it('signs out everywhere: every session of the person ends', async () => {
+    const one = await as('bob');
+    const two = await as('bob');
+    expect(
+      (await app.request('/api/me/sign-out-everywhere', { method: 'POST', headers: one.headers }))
+        .status,
+    ).toBe(200);
+    expect((await app.request('/api/agents', { headers: { Cookie: two.cookie } })).status).toBe(
+      401,
+    );
+    expect(
+      (await app.request('/api/me?optional=true', { headers: { Cookie: one.cookie } })).status,
+    ).toBe(200);
+  });
+
+  it('records changes in the audit log', async () => {
+    const tim = await as('tim');
+    const bob = await as('bob');
+    await patch(tim.headers, bob.me.user.id, { role: 'admin' });
+    const audit = await (
+      await app.request('/api/admin/audit', { headers: { Cookie: tim.cookie } })
+    ).json();
+    expect(audit.data[0]).toMatchObject({
+      action: 'person.role',
+      actorId: tim.me.user.id,
+      targetId: bob.me.user.id,
+    });
   });
 });

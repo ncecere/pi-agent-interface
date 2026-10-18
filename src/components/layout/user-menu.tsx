@@ -45,9 +45,13 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
           <span className="block truncate text-sm font-medium text-[var(--text-primary)]">
             {name}
           </span>
-          {user.email && name !== user.email && (
-            <span className="block truncate text-xs text-[var(--text-muted)]">{user.email}</span>
-          )}
+          <span className="block truncate text-xs text-[var(--text-muted)]">
+            {user.role === 'admin'
+              ? 'Administrator'
+              : user.email && name !== user.email
+                ? user.email
+                : ''}
+          </span>
         </span>
       </DropdownMenuTrigger>
 

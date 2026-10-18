@@ -17,8 +17,8 @@ tim / bob / sally ──sign in──▶ chat server (server/) ──service key
 
 - **Agents** are the platform's service-managed agents. `PUT /v1/teams/{team}/agents/by-key/u:<person>` creates a
   person's assistant the first time they open the app, from `AGENT_TEMPLATE`.
-- **Conversations** live on the platform. The app has no database; sessions are AES-GCM encrypted cookies, and the
-  inbox's state (pinned, snoozed, done…) is kept in the browser.
+- **Conversations** live on the platform. The app's own Postgres holds who has signed in, their role (admin or
+  user), settings and preferences; sessions are AES-GCM encrypted cookies.
 - **Isolation.** The service key reaches every person's agent, so the server checks on every request that the
   agent is the signed-in person's own (`server/platform.ts`, tested in `tests/server/app.test.ts`). The team's
   owners see the agents in the platform console, not their conversations.
@@ -43,6 +43,8 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `PLATFORM_URL`, `PLATFORM_TEAM`, `PLATFORM_SERVICE_KEY` | The platform, the team, and the service account key. Never sent to browsers. |
 | `AGENT_TEMPLATE`, `AGENT_NAME` | The platform template each person's assistant is made from, and what the app calls it. |
 | `AGENT_MODEL` | The model every assistant runs on, by name or id, from those published to the team. New assistants are created on it and existing ones moved to it (from their next start). Only a model currently published to the team is ever set, since an agent on an unpublished model would not start. Empty: the platform decides. |
+| `DATABASE_URL` | The chat app's own Postgres (people, roles, settings, preferences). Migrated on start. Conversations stay on the platform. |
+| `INITIAL_ADMIN_EMAIL` | Becomes an administrator on signing in while there is no administrator. After that, admins promote others. |
 | `SESSION_SECRET` | 32+ characters (`openssl rand -base64 48`). Encrypts sessions; changing it signs everyone out. |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Single sign-on. All three. |
 | `DEV_AUTH` | `true` enables the development accounts tim, bob and sally. Refused unless `APP_URL` is loopback. |
@@ -75,6 +77,7 @@ One Node process serves the web app and the API, as the non-root `node` user, wi
 ```sh
 cp .env.example .env.local   # set PLATFORM_*, SESSION_SECRET, DEV_AUTH=true
 pnpm install
+pnpm db:up                   # a Postgres for the app, on 127.0.0.1:55433 (compose.yaml)
 pnpm dev                     # web on http://localhost:5177, server on 127.0.0.1:5178
 ```
 
@@ -86,6 +89,9 @@ pnpm gen:api                 # platform types from ../golang/pi-durable-platform
 ```
 
 `/avatars` (development only) is a review page for the avatar styles.
+
+**Locked out?** Make someone an administrator from the server: `pnpm admin:promote <email>` (in a container,
+`node dist-server/cli.js promote <email>`). They must have signed in once.
 
 ## How it works
 

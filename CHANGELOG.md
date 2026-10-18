@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The app has its own Postgres (`DATABASE_URL`), migrated on start: the people who have signed in, their role and
+  an audit log. `INITIAL_ADMIN_EMAIL` makes the first administrator; `pnpm admin:promote <email>` recovers from a
+  lockout. Administrators can promote and suspend people (`/api/admin/*`); a suspension, or "sign out
+  everywhere", ends the person's sessions within seconds. There is always at least one active administrator.
 - `AGENT_MODEL` chooses the model every assistant runs on, from those published to the team. New assistants are
   created on it; existing ones are moved to it, taking effect from their next start. A model that is not
   published (or is disabled) is never set, and a failed change is logged without keeping anyone from their

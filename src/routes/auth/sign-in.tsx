@@ -11,6 +11,7 @@ import { instanceName } from '~/shared';
 const SIGN_IN_ERRORS: Record<string, string> = {
   expired: 'Signing in took too long. Try again.',
   failed: "Single sign-on didn't complete. Try again, or ask an administrator.",
+  suspended: 'Your account is suspended. Ask an administrator to restore it.',
 };
 
 /**

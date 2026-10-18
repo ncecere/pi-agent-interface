@@ -1,0 +1,19 @@
+# Development database for the chat app (not the platform's). `docker compose up -d`.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pai
+      POSTGRES_PASSWORD: pai-local-only
+      POSTGRES_DB: pai
+    ports:
+      - 127.0.0.1:55433:5432
+    volumes:
+      - pai-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U pai]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+volumes:
+  pai-db:

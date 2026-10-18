@@ -20,12 +20,15 @@
     "test": "vitest run tests",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "gen:api": "openapi-typescript ${PLATFORM_OPENAPI:-../golang/pi-durable-platform/api/openapi.yaml} -o src/api/schema.gen.ts"
+    "gen:api": "openapi-typescript ${PLATFORM_OPENAPI:-../golang/pi-durable-platform/api/openapi.yaml} -o src/api/schema.gen.ts",
+    "admin:promote": "tsx server/cli.ts promote",
+    "db:up": "docker compose up -d --wait"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",
     "hono": "4.13.13",
-    "openid-client": "6.8.8"
+    "openid-client": "6.8.8",
+    "postgres": "3.4.9"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",

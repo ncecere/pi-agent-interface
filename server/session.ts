@@ -19,6 +19,8 @@ export interface Session {
   csrf: string;
   /** Unix seconds. */
   expiresAt: number;
+  /** The person's session version when it began: raising it ends the session (sign out everywhere, suspension). */
+  v: number;
 }
 
 /** A short-lived cookie holding the single sign-on state between redirect and callback. */

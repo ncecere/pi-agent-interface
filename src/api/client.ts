@@ -12,8 +12,10 @@ export type AgentThread = Schemas['AgentThread'];
 export type ChatView = Schemas['ChatView'];
 export type ChatViewMessage = Schemas['ChatMessage'];
 
+export type Role = 'admin' | 'user';
+
 export interface Me {
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; role: Role };
   csrfToken: string;
 }
 
@@ -89,8 +91,12 @@ export async function request<T>(
     // An empty or non-JSON answer: the status says enough.
   }
   if (!response.ok) {
+    const error = apiErrorFrom(response, parsed);
     if (response.status === 401) noteUnauthorized();
-    throw apiErrorFrom(response, parsed);
+    // Suspended while signed in: the session is over, and sign-in says why.
+    if (error.code === 'suspended' && window.location.pathname !== '/sign-in')
+      window.location.assign('/sign-in?error=suspended');
+    throw error;
   }
   return (parsed as { data: T } | null)?.data as T;
 }

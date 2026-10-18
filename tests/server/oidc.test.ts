@@ -8,6 +8,7 @@ import { createApp } from '../../server/app.ts';
 import { type Config, loadConfig } from '../../server/config.ts';
 import type { Platform } from '../../server/platform.ts';
 import { userIdFor } from '../../server/session.ts';
+import { MemoryStore } from '../../server/store.ts';
 
 /**
  * A real OpenID Connect round trip against a small in-process identity
@@ -124,9 +125,11 @@ function appFor(overrides: Partial<Config> = {}) {
     },
     devAuth: false,
     staticDir: null,
+    databaseUrl: '',
+    initialAdminEmail: null,
     ...overrides,
   };
-  return createApp(config, platform);
+  return createApp(config, { store: new MemoryStore(), platform });
 }
 
 const cookieOf = (response: Response, name: string) =>
@@ -200,6 +203,7 @@ describe('single sign-on', () => {
       id: userIdFor(issuer, 'sub-123'),
       name: 'Sally Smith',
       email: 'sally@example.com',
+      role: 'user',
     });
   });
 
@@ -293,6 +297,7 @@ describe('loadConfig', () => {
     OIDC_ISSUER: 'https://auth.example.com/application/o/pai/',
     OIDC_CLIENT_ID: 'pai',
     OIDC_CLIENT_SECRET: 'secret',
+    DATABASE_URL: 'postgres://pai@db.internal/pai',
   };
   const problems = (env: Record<string, string | undefined>) => {
     try {
