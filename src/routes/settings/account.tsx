@@ -30,7 +30,7 @@ function PlatformConnection({ account }: { account: NonNullable<Me['platform']>[
         label="Connected account"
         description={
           account
-            ? `Your agents and conversations are on the agent platform, in this account. Connected ${new Date(account.since).toLocaleDateString()}.`
+            ? 'Your agents and conversations are on the agent platform, in this account.'
             : 'Not connected.'
         }
       >

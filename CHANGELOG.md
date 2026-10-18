@@ -10,13 +10,15 @@ Released 2026-10-18. People connect their own agent platform account, the app ga
 agents people can make, and a live inbox in t3code's style, and it gets its own logo, site and documentation.
 
 ### Upgrading from 0.1.0
-- The app's database gains two migrations (people's agents, platform connections); they run when a pod starts.
+- **0.2.0 adds a database.** 0.1.0 kept nothing of its own. Set `DATABASE_URL` to a PostgreSQL database; the app
+  creates its tables when it starts (three migrations: people, settings and preferences; people's agents; platform
+  connections).
 - **A deployment with `PLATFORM_SERVICE_KEY` set stays in service mode, as before.** Without a service key the app
   now defaults to Connect (`PLATFORM_AUTH=connect`). Set `PLATFORM_AUTH=service` to keep using a service account.
 - `AGENT_MODEL` is now only the fallback default: Admin → Agents sets the default model and wins.
 - The image no longer contains npm, corepack or yarn.
-- New settings: `PLATFORM_AUTH`, `CONNECT_EMAIL_MATCH`, `DISABLED_FEATURES`, `DATABASE_URL` (required since 0.1.0's
-  database), `INITIAL_ADMIN_EMAIL`. See the README's configuration table.
+- New settings: `DATABASE_URL` (required), `INITIAL_ADMIN_EMAIL`, `PLATFORM_AUTH`, `CONNECT_EMAIL_MATCH`,
+  `DISABLED_FEATURES`. See the README's configuration table.
 
 ### Connecting to the platform
 - **OAuth Connect** (`PLATFORM_AUTH=connect`): after signing in, a person connects their own account on the agent

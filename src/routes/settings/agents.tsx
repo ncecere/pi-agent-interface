@@ -23,6 +23,7 @@ import {
   useRemoveAgent,
   useUpdateAgent,
 } from '~/hooks/use-agents';
+import { groupAgents } from '~/lib/agent-groups';
 import { usePageTitle } from '~/lib/document-title';
 
 const FIELD =
@@ -242,8 +243,7 @@ export function SettingsAgentsPage() {
         <Spinner className="mx-auto" />
       </div>
     );
-  const mine = agents.data.filter((agent) => agent.kind === 'personal');
-  const provided = agents.data.filter((agent) => agent.kind !== 'personal');
+  const { mine, provided, teams } = groupAgents(agents.data);
   const { limit } = catalog.data;
   const full = mine.length >= limit;
 
@@ -296,6 +296,20 @@ export function SettingsAgentsPage() {
           ))}
         </ul>
       </SettingsSection>
+
+      {teams.length > 0 && (
+        <SettingsSection title="From your teams">
+          <p className="-mt-2 text-sm text-[var(--text-muted)]">
+            Agents of the teams you belong to on the agent platform, which manages them. Your
+            conversations with them are private to you.
+          </p>
+          <ul className="divide-y divide-[var(--border-subtle)] rounded-xl border border-[var(--border-subtle)]">
+            {teams.map((agent) => (
+              <AgentRow key={agent.id} agent={agent} />
+            ))}
+          </ul>
+        </SettingsSection>
+      )}
 
       {editing && (
         <AgentDialog
