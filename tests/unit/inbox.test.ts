@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   bucketOf,
   change,
+  DROPPED_AFTER_MS,
   type InboxEntry,
   isBlank,
   nextWake,
+  replyDropped,
   replyFinished,
   STALE_WORKING_MS,
   sectionsOf,
@@ -302,5 +304,25 @@ describe('working after a send', () => {
       workingSince: undefined,
       awaitingUsers: undefined,
     });
+  });
+});
+
+describe('replyDropped', () => {
+  const view = (busy: boolean, ...roles: string[]) => ({
+    busy,
+    messages: roles.map((role) => ({ role })),
+  });
+  const now = 10_000_000;
+  const long = now - DROPPED_AFTER_MS - 1;
+
+  it('is a dropped turn when the agent is idle, the person spoke last, and it has been a while', () => {
+    expect(replyDropped(view(false, 'user', 'assistant', 'user', 'user'), long, now)).toBe(true);
+  });
+
+  it('is not dropped while the agent is busy, after it replied, too soon, or when nothing was working', () => {
+    expect(replyDropped(view(true, 'user'), long, now)).toBe(false);
+    expect(replyDropped(view(false, 'user', 'assistant'), long, now)).toBe(false);
+    expect(replyDropped(view(false, 'user'), now - 5_000, now)).toBe(false);
+    expect(replyDropped(view(false, 'user'), undefined, now)).toBe(false);
   });
 });

@@ -328,6 +328,28 @@ export function replyFinished(
   return users >= awaitingUsers && view.messages.at(-1)?.role !== 'user';
 }
 
+/** How long an idle agent may leave the person's message unanswered before the turn counts as dropped. */
+export const DROPPED_AFTER_MS = 90_000;
+
+/**
+ * Whether the agent gave up on a turn: idle, the transcript still ending with
+ * the person's message, and long enough since it started working that it is
+ * not just about to pick it up. The platform can drop a turn without writing a
+ * reply or an error; this keeps it from looking like work for hours.
+ */
+export function replyDropped(
+  view: { busy: boolean; messages: ReadonlyArray<{ role: string }> },
+  workingSince: number | undefined,
+  now: number,
+): boolean {
+  return (
+    !view.busy &&
+    view.messages.at(-1)?.role === 'user' &&
+    workingSince !== undefined &&
+    now - workingSince > DROPPED_AFTER_MS
+  );
+}
+
 /** A meta with every field left undefined is not worth keeping. */
 export function isBlank(meta: ThreadMeta): boolean {
   return Object.entries(meta).every(([key, value]) => key === '_at' || value === undefined);

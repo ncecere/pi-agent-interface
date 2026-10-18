@@ -48,12 +48,14 @@ import { keepFocusWhenRemoved } from '~/lib/focus-return';
 import {
   activityAt,
   type InboxEntry,
+  needsAttention,
   type Sections,
   STATUS_LABEL,
   snoozePresets,
   type ThreadMeta,
   untilLabel,
 } from '~/lib/inbox';
+import { matchInboxShortcut } from '~/lib/inbox-shortcuts';
 import { cn } from '~/lib/utils';
 
 /** Which shelves are open, remembered in this browser. They start closed. */
@@ -134,6 +136,66 @@ export function SidebarInbox({ filter }: { filter: string }) {
       });
     else void navigate({ to: '/', search: { agent: entry.agentId } });
   };
+
+  // Inbox shortcuts (lib/inbox-shortcuts.ts). The latest state is read through a ref.
+  const latest = useRef({
+    active,
+    entries: inbox.entries,
+    openKey,
+    undoable,
+    advanceFrom,
+    actions,
+    navigate,
+    now: inbox.now,
+  });
+  latest.current = {
+    active,
+    entries: inbox.entries,
+    openKey,
+    undoable,
+    advanceFrom,
+    actions,
+    navigate,
+    now: inbox.now,
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      const shortcut = matchInboxShortcut(event);
+      if (!shortcut) return;
+      const { active, entries, openKey, undoable, advanceFrom, actions, navigate, now } =
+        latest.current;
+      const open = entries.find((entry) => entry.key === openKey);
+      const go = (entry: InboxEntry | undefined) =>
+        entry &&
+        void navigate({
+          to: '/agents/$agentId/threads/$threadId',
+          params: { agentId: entry.agentId, threadId: entry.threadId },
+        });
+      const at = active.findIndex((entry) => entry.key === openKey);
+      event.preventDefault();
+      if (shortcut === 'next') go(at < 0 ? active[0] : active[at + 1]);
+      else if (shortcut === 'previous') go(at < 0 ? active.at(-1) : active[at - 1]);
+      else if (shortcut === 'next-attention') {
+        const after = [...active.slice(at + 1), ...active.slice(0, Math.max(at, 0))];
+        const target = after.find((entry) => needsAttention(entry.meta, now));
+        if (target) go(target);
+        else toast('Nothing else needs you.');
+      } else if (!open) toast('Open a conversation first.');
+      else if (shortcut === 'settle') {
+        if (open.status === 'working') return void toast('It is still working: stop it first.');
+        undoable('Settled', open.key, () => actions.settle(open.key));
+        advanceFrom(open);
+      } else if (shortcut === 'pin')
+        undoable(open.bucket === 'pinned' ? 'Unpinned' : 'Pinned', open.key, () =>
+          open.bucket === 'pinned' ? actions.unpin(open.key) : actions.pin(open.key),
+        );
+      else if (shortcut === 'unread')
+        undoable('Marked unread', open.key, () => actions.markUnread(open.key));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (inbox.loading)
     return (
@@ -488,6 +550,8 @@ function InboxRow({
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
   const [custom, setCustom] = useState(false);
+  // Right-click opens the row's menu, as t3code's context menu.
+  const [menuOpen, setMenuOpen] = useState(false);
   const confirmButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!confirming) return;
@@ -545,8 +609,13 @@ function InboxRow({
     ) : null;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: right-click is a mouse shortcut for the row's "…" button, which keyboards reach.
     <div
       data-focus-row=""
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenuOpen(true);
+      }}
       className={cn(
         'group relative flex rounded-md motion-safe:animate-[row-in_150ms_ease-out]',
         'transition-[background-color,opacity] motion-reduce:transition-none',
@@ -618,7 +687,7 @@ function InboxRow({
           'pointer-events-none absolute right-1.5 flex items-center gap-0.5 opacity-0 transition-opacity motion-reduce:transition-none',
           away ? 'top-1/2 -translate-y-1/2' : 'top-2',
           'group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100',
-          confirming && 'pointer-events-auto opacity-100',
+          (confirming || menuOpen) && 'pointer-events-auto opacity-100',
           // Touch screens have no hover: the actions are always there.
           'pointer-coarse:pointer-events-auto pointer-coarse:opacity-100',
         )}
@@ -694,7 +763,7 @@ function InboxRow({
                 </button>
               </>
             )}
-            <DropdownMenu>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"

@@ -5,6 +5,7 @@ import { SkipLink } from '~/components/layout/skip-link';
 import { ThemeMenu } from '~/components/layout/theme-menu';
 import { Button } from '~/components/ui/button';
 import { useCurrentUser, useSignOut } from '~/hooks/use-session';
+import { INBOX_SHORTCUTS, shortcutLabel } from '~/lib/inbox-shortcuts';
 import {
   isApplePlatform,
   modifierKey,
@@ -96,6 +97,10 @@ function ShortcutsCard() {
           { label: 'Send message', keys: ['Enter'] },
           { label: 'New line', keys: [apple ? '⇧' : 'Shift', 'Enter'] },
         ]),
+    ...INBOX_SHORTCUTS.map((shortcut) => ({
+      label: shortcut.label,
+      keys: shortcutLabel(shortcut.keys, apple),
+    })),
   ];
   return (
     // Keyboard shortcuts matter only with a keyboard and a precise pointer.

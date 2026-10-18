@@ -6,6 +6,10 @@
   icon (Working with a timer, Done, Failed, Woke), a pin on pinned rows, compact times (now, 5m, 3h, 2d), soft
   hover and active tints, and hover actions Pin, Snooze and Settle. "Done" now means a finished reply you have not
   seen; conversations you are finished with are **Settled**. Snoozing shows each wake time and offers "Custom…".
+- **Inbox shortcuts**: ⌥↑/⌥↓ previous/next conversation, ⌥⇧↓ next that needs you, ⌥⇧S settle and move on,
+  ⌥⇧P pin, ⌥⇧U mark unread (Alt on Windows and Linux; listed in Settings). Right-click a row for its menu.
+- A turn the agent drops without replying (idle, your message last, 90s on) now shows **Failed** instead of
+  Working for up to two hours.
 - **Agents.** Admin → Agents sets the default model (instead of `AGENT_MODEL`, which remains the fallback), how
   many agents each person may make (default 5), whether people choose the model, and the templates allowed.
   **Provided agents**: administrators add agents everyone gets, each person their own private copy (the built-in

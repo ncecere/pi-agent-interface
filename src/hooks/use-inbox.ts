@@ -15,11 +15,13 @@ import { useCurrentUser } from '~/hooks/use-session';
 import {
   bucketOf,
   change,
+  DROPPED_AFTER_MS,
   type InboxEntry,
   isSnoozed,
   isWorking,
   needsAttention,
   nextWake,
+  replyDropped,
   replyFinished,
   type Sections,
   sectionsOf,
@@ -286,8 +288,13 @@ export function useInboxTracker() {
       const metas = store?.getSnapshot() ?? EMPTY;
       const now = Date.now();
       const keys = Object.entries(metas)
-        // The open conversation has its own stream; the others are asked.
-        .filter(([key, meta]) => key !== openKey && meta.workingSince !== undefined)
+        // The others are asked. The open conversation has its own stream, but is
+        // asked too once it has been working a while: its turn may have been dropped.
+        .filter(
+          ([key, meta]) =>
+            meta.workingSince !== undefined &&
+            (key !== openKey || now - meta.workingSince > DROPPED_AFTER_MS),
+        )
         .map(([key, meta]) => [key, meta] as const);
       await Promise.all(
         keys.map(async ([key, meta]) => {
@@ -297,7 +304,9 @@ export function useInboxTracker() {
           if (!agentId || !threadId) return actions.forget(key);
           try {
             const view = await api.get<ChatView>(threadPath(agentId, threadId));
-            if (!replyFinished(view, meta.awaitingUsers)) return;
+            if (replyDropped(view, meta.workingSince, Date.now()))
+              return actions.finished(key, true);
+            if (key === openKey || !replyFinished(view, meta.awaitingUsers)) return;
             const last = view.messages.findLast((message) => message.role === 'assistant');
             actions.finished(key, Boolean(last?.error && last.error !== 'Interrupted'));
           } catch (error) {
