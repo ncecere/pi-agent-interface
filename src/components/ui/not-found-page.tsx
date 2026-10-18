@@ -26,7 +26,7 @@ export function NotFoundPage({ admin = false }: { admin?: boolean }) {
       actions={
         <Button asChild>
           {signedOut ? (
-            <Link to="/auth/login" activeOptions={exact}>
+            <Link to="/sign-in" activeOptions={exact}>
               Sign in
             </Link>
           ) : (

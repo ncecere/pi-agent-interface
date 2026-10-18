@@ -30,7 +30,7 @@ const rootRoute = createRootRoute({
 
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/auth/login',
+  path: '/sign-in',
   component: SignInPage,
   beforeLoad: async ({ location }) => {
     const session = await loadSession();
@@ -47,7 +47,7 @@ const authenticatedRoute = createRoute({
   beforeLoad: async ({ location }) => {
     const session = await loadSession();
     if (!session)
-      throw redirect({ to: '/auth/login', search: signInSearch(location.href) as never });
+      throw redirect({ to: '/sign-in', search: signInSearch(location.href) as never });
     return { session };
   },
   component: () => (
@@ -105,9 +105,9 @@ export const router = createRouter({
 onSessionEnded(() => {
   forgetSession();
   const { pathname, href } = router.state.location;
-  if (pathname.startsWith('/auth/')) return;
+  if (pathname === '/sign-in') return;
   void router.navigate({
-    to: '/auth/login',
+    to: '/sign-in',
     search: { 'signed-out': 1, ...signInSearch(href) } as never,
   });
 });

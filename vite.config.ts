@@ -1,56 +1,87 @@
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig, type ProxyOptions } from 'vite';
+import { defineConfig, loadEnv, type ProxyOptions } from 'vite';
 
 /**
- * The platform's APP_URL (pi-durable-platform .env). Requests are proxied so
- * the browser sees one origin, as in production where the platform (or a
- * reverse proxy) serves this UI beside /v1 and /auth.
+ * Development against a pi-durable-platform, local or remote. The browser
+ * sees one origin (this dev server), as in production where the platform or
+ * a reverse proxy serves this UI beside /v1 and /auth.
+ *
+ * Settings (environment, or .env.local, which is git-ignored):
+ *
+ * - PLATFORM_URL: the platform's address (its APP_URL), default
+ *   http://localhost:8098.
+ * - PLATFORM_SESSION: for a remote platform with single sign-on. Its sign-in
+ *   returns to the platform's own domain, so the session cookie never reaches
+ *   localhost. Sign in on the platform, copy the value of its session cookie
+ *   (`__Host-pdp_session` over https), and the proxy sends it with every
+ *   request. It stays in this Node process; the browser never sees it.
  */
-const PLATFORM_URL = new URL(process.env.PLATFORM_URL ?? 'http://localhost:8098');
-// Connect over IPv4: the platform listens on 127.0.0.1, and Node may resolve
-// "localhost" to ::1 first.
-const target = `${PLATFORM_URL.protocol}//${PLATFORM_URL.hostname === 'localhost' ? '127.0.0.1' : PLATFORM_URL.hostname}:${PLATFORM_URL.port}`;
+export default defineConfig(({ mode }) => {
+  const env = { ...loadEnv(mode, process.cwd(), ''), ...process.env };
+  const platformUrl = new URL(env.PLATFORM_URL ?? 'http://localhost:8098');
+  const secure = platformUrl.protocol === 'https:';
+  const session = env.PLATFORM_SESSION?.trim();
+  const cookieName = secure ? '__Host-pdp_session' : 'pdp_session';
+  // A local platform listens on 127.0.0.1, and Node may resolve "localhost" to ::1 first.
+  const target =
+    platformUrl.hostname === 'localhost'
+      ? `${platformUrl.protocol}//127.0.0.1:${platformUrl.port}`
+      : platformUrl.origin;
 
-/**
- * Development only. The platform accepts browser writes from its own origin
- * (APP_URL), and dev login only when addressed to APP_URL's host. This dev
- * server is a different origin, so it presents the request as the platform's
- * own; the session cookie and the X-CSRF-Token header still have to match.
- */
-const platform: ProxyOptions = {
-  target,
-  changeOrigin: false,
-  configure(proxy) {
-    proxy.on('proxyReq', (request) => {
-      request.setHeader('host', PLATFORM_URL.host);
-      if (request.getHeader('origin')) request.setHeader('origin', PLATFORM_URL.origin);
-    });
-  },
-};
-
-const proxy = { '/v1': platform, '/auth': platform, '/healthz': platform };
-
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '~': fileURLToPath(new URL('./src', import.meta.url)),
+  /**
+   * The platform accepts browser writes only from its own origin (APP_URL),
+   * so requests are presented as coming from it. The session cookie and the
+   * X-CSRF-Token header still have to match, as for any browser.
+   */
+  const platform: ProxyOptions = {
+    target,
+    changeOrigin: true,
+    secure: true,
+    configure(proxy) {
+      proxy.on('proxyReq', (request) => {
+        request.setHeader('host', platformUrl.host);
+        if (request.getHeader('origin')) request.setHeader('origin', platformUrl.origin);
+        if (session) request.setHeader('cookie', `${cookieName}=${session}`);
+      });
+      proxy.on('proxyRes', (response) => {
+        // A __Host- cookie cannot be set on http://localhost; with an injected
+        // session, signing out here must not try to clear it either.
+        if (session || secure) delete response.headers['set-cookie'];
+      });
     },
-  },
-  server: { port: 5177, strictPort: true, proxy },
-  preview: { port: 5177, proxy },
-  build: {
-    outDir: 'dist',
-    sourcemap: true,
-    manifest: true,
-    rolldownOptions: {
-      output: {
-        codeSplitting: {
-          groups: [{ name: 'initial-shared', tags: ['$initial'], minShareCount: 2 }],
+  };
+  const proxy = { '/v1': platform, '/auth': platform, '/healthz': platform };
+
+  return {
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        '~': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
+    define: {
+      // Shown on the sign-in page in development, to explain remote sign-in.
+      __DEV_PLATFORM__: JSON.stringify(
+        mode === 'development'
+          ? { url: platformUrl.origin, remote: secure, session: Boolean(session), cookieName }
+          : null,
+      ),
+    },
+    server: { port: 5177, strictPort: true, proxy },
+    preview: { port: 5177, proxy },
+    build: {
+      outDir: 'dist',
+      sourcemap: true,
+      manifest: true,
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [{ name: 'initial-shared', tags: ['$initial'], minShareCount: 2 }],
+          },
         },
       },
     },
-  },
+  };
 });

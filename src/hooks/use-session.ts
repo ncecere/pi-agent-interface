@@ -80,7 +80,7 @@ export function useSignOut() {
       noteUnauthorized();
       setCsrfToken('');
       queryClient.clear();
-      window.location.assign('/auth/login');
+      window.location.assign('/sign-in');
     },
   });
 }

@@ -13,7 +13,7 @@ import { instanceName } from '~/shared';
 const SEPARATOR = ' · ';
 
 const AUTH_PAGES: Record<string, string> = {
-  '/auth/login': 'Sign in',
+  '/sign-in': 'Sign in',
 };
 
 /** The page's own part of the title, or null where the app name alone is right. */

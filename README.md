@@ -13,15 +13,20 @@ Browser ──/v1, /auth──▶ pi-durable-platform ──▶ agent runtimes
 
 ## Development
 
-Start the platform (`APP_URL=http://localhost:8098`, `DEV_AUTH=true`), then:
-
 ```sh
 pnpm install
 pnpm dev            # http://localhost:5177, proxies /v1 and /auth to the platform
 ```
 
-`PLATFORM_URL` points the dev proxy at another platform address. In development the proxy presents
-requests as the platform's own origin, because the platform accepts browser writes only from APP_URL.
+Settings go in `.env.local` (git-ignored):
+
+- `PLATFORM_URL`: the platform, e.g. `https://agents.bitop.dev` (default `http://localhost:8098`).
+- `PLATFORM_SESSION`: for a remote platform with single sign-on, whose sign-in returns to its own domain.
+  Sign in on the platform, copy the value of the `__Host-pdp_session` cookie, and restart `pnpm dev`.
+  The dev proxy sends it with each request; the browser never sees it.
+
+The proxy presents requests as the platform's own origin, because the platform accepts browser writes
+only from its APP_URL. The sign-in page is `/sign-in`: `/auth/*` belongs to the platform.
 
 ```sh
 pnpm gen:api        # regenerate src/api/schema.gen.ts from the platform's openapi.yaml

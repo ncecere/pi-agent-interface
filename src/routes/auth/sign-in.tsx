@@ -8,6 +8,40 @@ import { ME_KEY, nextPath, useAuthConfig, useDevSignIn } from '~/hooks/use-sessi
 import { usePageTitle } from '~/lib/document-title';
 import { instanceName } from '~/shared';
 
+const devPlatform = typeof __DEV_PLATFORM__ === 'undefined' ? null : __DEV_PLATFORM__;
+
+/**
+ * Development against a remote platform: its single sign-on returns to the
+ * platform's own domain, so the session is handed to the dev proxy instead.
+ */
+function RemoteDevSignIn({ url, cookieName }: { url: string; cookieName: string }) {
+  return (
+    <div className="space-y-3 text-sm text-[var(--text-secondary)]">
+      <p className="font-medium text-[var(--text-primary)]">Development against {url}</p>
+      <ol className="list-decimal space-y-1.5 pl-5">
+        <li>
+          <a href={url} target="_blank" rel="noreferrer" className="underline">
+            Sign in on the platform
+          </a>
+          .
+        </li>
+        <li>
+          In its developer tools (Application → Cookies), copy the value of{' '}
+          <code className="font-mono text-xs">{cookieName}</code>.
+        </li>
+        <li>
+          Add <code className="font-mono text-xs">PLATFORM_SESSION=…</code> to{' '}
+          <code className="font-mono text-xs">.env.local</code> and restart{' '}
+          <code className="font-mono text-xs">pnpm dev</code>.
+        </li>
+      </ol>
+      <p className="text-xs text-[var(--text-muted)]">
+        The dev server sends it to the platform with each request; the browser never sees it.
+      </p>
+    </div>
+  );
+}
+
 /**
  * Sign in through the platform: single sign-on (OIDC) when it is configured,
  * and the platform's development personas when DEV_AUTH is on. The platform
@@ -56,7 +90,16 @@ export function SignInPage() {
                 Your session ended. Sign in again to continue.
               </p>
             )}
-            {config.data.oidcEnabled && (
+            {devPlatform?.remote && !devPlatform.session ? (
+              <RemoteDevSignIn url={devPlatform.url} cookieName={devPlatform.cookieName} />
+            ) : devPlatform?.remote && devPlatform.session ? (
+              <p role="alert" className="text-sm text-[var(--danger-on-tint)]">
+                The platform did not accept PLATFORM_SESSION: it has expired or was signed out. Copy
+                a fresh <code className="font-mono text-xs">{devPlatform.cookieName}</code> into
+                .env.local and restart <code className="font-mono text-xs">pnpm dev</code>.
+              </p>
+            ) : null}
+            {config.data.oidcEnabled && !devPlatform?.remote && (
               <Button asChild variant="primary" className="w-full">
                 <a href={`/auth/login?next=${encodeURIComponent(returnTo)}`}>
                   <ShieldCheck />
