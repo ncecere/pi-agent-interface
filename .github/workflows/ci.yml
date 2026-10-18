@@ -1,0 +1,73 @@
+# Checks every push and pull request: types, lint, tests (with a real
+# Postgres for the PgStore contract), the production build, and a test build
+# of the container image (nothing is pushed; image.yml publishes releases).
+# Every action is pinned by commit SHA; the comment gives the version.
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pai
+          POSTGRES_PASSWORD: pai-ci-only
+          POSTGRES_DB: pai
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd "pg_isready -U pai"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://pai:pai-ci-only@127.0.0.1:55433/pai
+      # The PgStore contract must run here, not be skipped.
+      PAI_TEST_REQUIRE_DB: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: pnpm (the version in package.json's packageManager)
+        run: corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Types
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Tests
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - name: Build the image (not pushed)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: pi-agent-interface:ci
+          cache-from: type=gha,scope=ci-docker
+          cache-to: type=gha,mode=max,scope=ci-docker
+      - name: Runs as the non-root user and starts
+        run: |
+          user=$(docker image inspect --format '{{.Config.User}}' pi-agent-interface:ci)
+          [ "${user}" = "node" ] || { echo "::error::the image runs as '${user}', not node"; exit 1; }
+          docker run --rm --read-only --network none pi-agent-interface:ci node -e "require('/app/package.json')"
