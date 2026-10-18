@@ -4,6 +4,15 @@
 
 Nothing yet.
 
+## 0.3.1
+
+Released 2026-10-18. Two inbox glitches found while capturing the screenshots.
+
+- **On a touch screen**, where a row's "…" button is always shown, it was drawn over the row's status ("Done",
+  "Failed", "Woke", "Working 6m") and its pin. The status now keeps clear of the button.
+- **With a row's menu open**, a row's status was drawn under its actions. The status now steps aside while the menu
+  is open or a delete is being confirmed, as it already did on hover and focus.
+
 ## 0.3.0
 
 Released 2026-10-18. What the platform now records shows with each message, and the app waits for its database.

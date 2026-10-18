@@ -420,6 +420,14 @@ function Shelf({
   );
 }
 
+/**
+ * A row's corner (its status, a snooze's time left, when it was settled) gives way to the actions
+ * that appear over it on hover or focus. On a touch screen, where "…" is always there, it keeps
+ * clear of it instead: room for the button, so nothing is drawn over the text.
+ */
+const CORNER =
+  'transition-opacity group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:mr-7';
+
 const ICON_BUTTON =
   'inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-row-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40';
 
@@ -629,6 +637,9 @@ function InboxRow({
   const working = status === 'working';
   const pinned = bucket === 'pinned';
   const away = bucket === 'done' || bucket === 'snoozed' || bucket === 'archived';
+  // The actions sit over the row's corner. They replace it while hovered or focused (CORNER), and
+  // also while a menu from them is open or a delete is being confirmed.
+  const covered = menuOpen || confirming;
 
   const settle = () => {
     undoable('Settled', key, () => actions.settle(key));
@@ -703,9 +714,7 @@ function InboxRow({
             <span dir="auto" className="min-w-0 flex-1 truncate text-sm text-[var(--text-muted)]">
               {title}
             </span>
-            <span className="transition-opacity group-focus-within:opacity-0 group-hover:opacity-0">
-              {corner}
-            </span>
+            <span className={cn(CORNER, covered && 'opacity-0')}>{corner}</span>
           </>
         ) : (
           <>
@@ -721,7 +730,9 @@ function InboxRow({
               <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text-secondary)]">
                 {agent.name}
               </span>
-              <span className="flex shrink-0 items-center gap-1.5 transition-opacity group-focus-within:opacity-0 group-hover:opacity-0">
+              <span
+                className={cn(CORNER, 'flex shrink-0 items-center gap-1.5', covered && 'opacity-0')}
+              >
                 {pinned && <Pin className="size-3 text-[var(--text-muted)]" aria-label="Pinned" />}
                 {corner}
               </span>

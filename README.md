@@ -84,7 +84,7 @@ provider that is not https (outside localhost), development accounts on a public
 and verify its cosign signature):
 
 ```sh
-docker run -d -p 8080:8080 --env-file .env ghcr.io/ncecere/pi-agent-interface:v0.3.0
+docker run -d -p 8080:8080 --env-file .env ghcr.io/ncecere/pi-agent-interface:v0.3.1
 # or build it:  docker build -t pi-agent-interface .
 ```
 
