@@ -1,11 +1,7 @@
 import { RefreshCw } from 'lucide-react';
+import { useId, useState } from 'react';
 import { Button } from '~/components/ui/button';
-
-/** A stored reason as a sentence; the server's own reasons have no full stop. */
-function sentence(text: string): string {
-  const trimmed = text.trim();
-  return /[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-}
+import { explainFailure } from '~/lib/agent-errors';
 
 /**
  * Under a reply that failed (#133): that it failed and why, in the reply's
@@ -25,19 +21,43 @@ export function ReplyFailureNote({
   onRetry?: () => void;
   latest: boolean;
 }) {
+  const { summary, detail } = explainFailure(reason);
+  const [showDetail, setShowDetail] = useState(false);
+  const detailId = useId();
   return (
     <div
       role={latest ? 'alert' : 'note'}
-      className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-[var(--danger)]/15 px-4 py-2.5 text-sm text-[var(--danger-on-tint)]"
+      className="mb-2 rounded-xl bg-[var(--danger)]/15 px-4 py-2.5 text-sm text-[var(--danger-on-tint)]"
     >
-      <p className="min-w-0 flex-1">
-        <span className="font-medium">This reply failed.</span> {sentence(reason)}
-      </p>
-      {onRetry && (
-        <Button variant="secondary" size="sm" onClick={onRetry}>
-          <RefreshCw aria-hidden="true" />
-          Try again
-        </Button>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <p className="min-w-0 flex-1">
+          <span className="font-medium">This reply failed.</span> {summary}
+        </p>
+        {detail && (
+          <button
+            type="button"
+            aria-expanded={showDetail}
+            aria-controls={detailId}
+            onClick={() => setShowDetail(!showDetail)}
+            className="text-xs underline opacity-80 hover:opacity-100"
+          >
+            {showDetail ? 'Hide details' : 'Details'}
+          </button>
+        )}
+        {onRetry && (
+          <Button variant="secondary" size="sm" onClick={onRetry}>
+            <RefreshCw aria-hidden="true" />
+            Try again
+          </Button>
+        )}
+      </div>
+      {detail && showDetail && (
+        <pre
+          id={detailId}
+          className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-black/20 px-2.5 py-2 font-mono text-xs"
+        >
+          {detail}
+        </pre>
       )}
     </div>
   );

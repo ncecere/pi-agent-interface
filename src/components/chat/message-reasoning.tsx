@@ -49,7 +49,7 @@ export function ReasoningText({ text, className }: { text: string; className?: s
   return (
     <div
       className={cn(
-        'rounded-lg bg-black/15 px-3 py-3 text-[0.9375rem] leading-7 text-[var(--text-secondary)]',
+        'rounded-lg bg-black/15 px-3 py-2.5 text-[0.875rem] leading-6 text-[var(--text-muted)]',
         className,
       )}
     >

@@ -8,6 +8,17 @@
   seen; conversations you are finished with are **Settled**. Snoozing shows each wake time and offers "Custom…".
 - **Inbox shortcuts**: ⌥↑/⌥↓ previous/next conversation, ⌥⇧↓ next that needs you, ⌥⇧S settle and move on,
   ⌥⇧P pin, ⌥⇧U mark unread (Alt on Windows and Linux; listed in Settings). Right-click a row for its menu.
+- **Conversations open at their latest message** (they opened at the top after loading, and stopped following
+  replies).
+- **Tool steps**: an icon for the kind of tool (terminal, file, search, web, clock…), a spinner while it runs, red
+  when it fails, and what it acted on ("get_time Asia/Tokyo"). While the agent works, its latest steps show under
+  the header. Opened, a step shows a command as `$ command`, simple inputs as name and value, JSON output indented,
+  and Copy.
+- **Failed replies say why in plain words** ("The model is busy or over its limit right now…"), with the provider's
+  raw error under Details.
+- Live labels ("Thinking…", "get_time…") shimmer; reasoning in the steps is quieter than the answer; long messages
+  you send fold after 12 lines; narrow no-break spaces some models write ("3 PM") no longer squash words together.
+- **"No reply" note** under your message when the agent stopped without answering, with Try again.
 - A turn the agent drops without replying (idle, your message last, 90s on) now shows **Failed** instead of
   Working for up to two hours.
 - **Agents.** Admin → Agents sets the default model (instead of `AGENT_MODEL`, which remains the fallback), how

@@ -1,5 +1,20 @@
 import type { UIMessage } from 'ai';
-import { ChevronDown, Wrench } from 'lucide-react';
+import {
+  Brain,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Clock,
+  Copy,
+  FilePen,
+  FileText,
+  Globe,
+  LoaderCircle,
+  type LucideIcon,
+  Search,
+  SquareTerminal,
+  Wrench,
+} from 'lucide-react';
 import { useId, useState } from 'react';
 import { toolOutputText } from '~/lib/chat-view';
 import { cn } from '~/lib/utils';
@@ -39,6 +54,11 @@ export function inputHint(input: unknown): string | null {
     const value = record[key];
     if (typeof value === 'string' && value.trim()) return value.replace(/\s+/g, ' ').trim();
   }
+  // Otherwise the first short text it was given ("Asia/Tokyo").
+  for (const value of Object.values(record)) {
+    if (typeof value === 'string' && value.trim() && value.length <= 120)
+      return value.replace(/\s+/g, ' ').trim();
+  }
   return null;
 }
 
@@ -64,6 +84,26 @@ export function agentToolStep(part: ToolPart): ToolStepSummary {
   return { ...step, summary };
 }
 
+/**
+ * An icon for what a tool does, read from its name: agents' tools are their
+ * own (bash, read, edit, web_search, MCP tools…), so this is a guess, with a
+ * wrench for anything it does not recognise.
+ */
+export function toolIconOf(name: string): LucideIcon {
+  const id = name.toLowerCase();
+  if (/web|fetch|http|url|brows|crawl/.test(id)) return Globe;
+  if (/bash|shell|exec|terminal|command|run_|^run$|sh$/.test(id)) return SquareTerminal;
+  if (/grep|search|find|glob|lookup|query/.test(id)) return Search;
+  if (/write|edit|patch|create|update|apply|replace|delete|remove/.test(id)) return FilePen;
+  if (/read|cat|view|open|file|^ls$|list/.test(id)) return FileText;
+  if (/time|clock|date|calendar/.test(id)) return Clock;
+  if (/memory|remember|recall|note/.test(id)) return Brain;
+  return Wrench;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 const formatInput = (input: unknown) => {
   try {
     return JSON.stringify(input ?? {}, null, 2);
@@ -72,14 +112,88 @@ const formatInput = (input: unknown) => {
   }
 };
 
+/** Output that is JSON, indented; anything else as it came. */
+export function prettyOutput(text: string): string {
+  const trimmed = text.trim();
+  if (!/^[[{]/.test(trimmed)) return text;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? 'Copied' : label}
+      title={copied ? 'Copied' : label}
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1_500);
+        });
+      }}
+      className="rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-white/5 hover:text-[var(--text-primary)]"
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </button>
+  );
+}
+
+/**
+ * A call's inputs as people read them: a command as a terminal line, a few
+ * plain values as name and value, anything else as JSON.
+ */
+function ToolInputs({ input }: { input: unknown }) {
+  if (isRecord(input)) {
+    const entries = Object.entries(input);
+    if (entries.length === 0) return null;
+    const command = input.command ?? input.cmd;
+    if (typeof command === 'string' && entries.length <= 2) {
+      return (
+        <pre className="overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 px-2.5 py-2 font-mono text-[var(--text-primary)]">
+          <span className="select-none text-[var(--text-muted)]">$ </span>
+          {command}
+        </pre>
+      );
+    }
+    const plain = entries.every(
+      ([, value]) =>
+        ['string', 'number', 'boolean'].includes(typeof value) && String(value).length <= 300,
+    );
+    if (plain && entries.length <= 8) {
+      return (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          {entries.map(([key, value]) => (
+            <div key={key} className="contents">
+              <dt className="text-[var(--text-muted)]">{key}</dt>
+              <dd className="min-w-0 whitespace-pre-wrap break-words font-mono text-[var(--text-primary)]">
+                {String(value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      );
+    }
+  }
+  return (
+    <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words font-mono">
+      {formatInput(input)}
+    </pre>
+  );
+}
+
 function ToolOutput({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
   const [all, setAll] = useState(false);
-  const text = toolOutputText(part);
+  const raw = toolOutputText(part);
   if (step.state === 'denied')
     return (
       <p className="text-[var(--text-muted)]">Not run{step.reason ? `: ${step.reason}` : ''}.</p>
     );
-  if (text === null || text === '')
+  if (raw === null || raw === '')
     return (
       <p className="text-[var(--text-muted)]">
         {step.state === 'running'
@@ -89,12 +203,13 @@ function ToolOutput({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
             : 'No output.'}
       </p>
     );
+  const text = step.state === 'running' ? raw : prettyOutput(raw);
   const long = text.length > OUTPUT_PREVIEW_CHARS;
   return (
     <>
       <pre
         className={cn(
-          'max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono',
+          'max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 px-2.5 py-2 font-mono',
           step.state === 'error' && 'text-[var(--danger-on-tint)]',
         )}
       >
@@ -113,24 +228,82 @@ function ToolOutput({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
   );
 }
 
+/** What the tool acted on, for the row: the command, the file, the query. */
+const hintOf = (part: ToolPart) => inputHint(part.input);
+
+/** The icon at the start of a step's row: the tool's own, or a spinner while it runs. */
+function StepIcon({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
+  if (step.state === 'running')
+    return (
+      <LoaderCircle
+        className="size-4 shrink-0 text-[var(--text-secondary)] motion-safe:animate-spin"
+        aria-hidden="true"
+      />
+    );
+  const Icon =
+    step.state === 'error' ? CircleAlert : toolIconOf(String(part.toolName ?? step.label));
+  return (
+    <Icon
+      className={cn('size-4 shrink-0', step.state === 'error' && 'text-[var(--danger-on-tint)]')}
+      aria-hidden="true"
+    />
+  );
+}
+
+/** One line for a step: icon, tool, what it acted on, and how it went. */
+function StepLine({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
+  const hint = hintOf(part);
+  return (
+    <>
+      <StepIcon part={part} step={step} />
+      <span className="shrink-0 font-medium text-[var(--text-secondary)]">{step.label}</span>
+      {hint && (
+        <span className="min-w-0 truncate font-mono text-[0.75rem]" title={hint}>
+          {hint}
+        </span>
+      )}
+      {step.state === 'error' && (
+        <span className="shrink-0 text-[var(--danger-on-tint)]">failed</span>
+      )}
+      {step.state === 'denied' && <span className="shrink-0">not run</span>}
+    </>
+  );
+}
+
+/** The latest few steps while the agent works, under the work block's header. */
+export function LiveSteps({ parts }: { parts: ToolPart[] }) {
+  return (
+    <ul aria-hidden="true" className="mt-2 space-y-1.5" data-live-steps="">
+      {parts.map((part) => (
+        <li
+          key={part.toolCallId}
+          className="flex min-w-0 items-center gap-2 text-[0.8125rem] text-[var(--text-muted)] motion-safe:animate-[row-in_150ms_ease-out]"
+        >
+          <StepLine part={part} step={agentToolStep(part)} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** One tool call: a one-line summary that expands to its inputs and output. */
 export function ToolStepRow({ part, step }: { part: ToolPart; step: ToolStepSummary }) {
   const [open, setOpen] = useState(false);
   const detailsId = useId();
+  const output = toolOutputText(part);
+  const hasInputs = isRecord(part.input) ? Object.keys(part.input).length > 0 : part.input != null;
   return (
     <div className="min-w-0">
       <button
         type="button"
         aria-expanded={open}
         aria-controls={detailsId}
+        aria-label={step.summary}
         onClick={() => setOpen(!open)}
         className="flex w-full min-w-0 items-center gap-2 text-left text-[0.8125rem] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
       >
-        <Wrench
-          className={cn('size-4 shrink-0', step.state === 'running' && 'animate-pulse')}
-          aria-hidden="true"
-        />
-        <span className="min-w-0 flex-1 break-words font-mono text-[0.78rem]">{step.summary}</span>
+        <StepLine part={part} step={step} />
+        <span className="flex-1" />
         <ChevronDown
           className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
           aria-hidden="true"
@@ -139,18 +312,21 @@ export function ToolStepRow({ part, step }: { part: ToolPart; step: ToolStepSumm
       {open && (
         <div
           id={detailsId}
-          className="mt-2 space-y-2 rounded-lg bg-black/10 px-3 py-2 text-xs text-[var(--text-secondary)]"
+          className="mt-2 space-y-3 rounded-lg border border-[var(--border-subtle)] bg-black/10 px-3 py-2.5 text-xs text-[var(--text-secondary)]"
         >
+          {hasInputs && (
+            <div>
+              <p className="mb-1.5 font-medium text-[var(--text-primary)]">Input</p>
+              <ToolInputs input={part.input} />
+            </div>
+          )}
           <div>
-            <p className="mb-1 font-medium text-[var(--text-primary)]">Inputs</p>
-            <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words font-mono">
-              {formatInput(part.input)}
-            </pre>
-          </div>
-          <div>
-            <p className="mb-1 font-medium text-[var(--text-primary)]">
-              {step.state === 'running' ? 'Output so far' : 'Output'}
-            </p>
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="font-medium text-[var(--text-primary)]">
+                {step.state === 'running' ? 'Output so far' : 'Output'}
+              </p>
+              {output && <CopyButton text={output} label="Copy output" />}
+            </div>
             <ToolOutput part={part} step={step} />
           </div>
         </div>

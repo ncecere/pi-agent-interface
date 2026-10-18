@@ -10,7 +10,11 @@ import {
   ReasoningPreview,
   ReasoningText,
 } from '~/components/chat/message-reasoning';
-import { agentToolStep, type ToolPart, ToolStepRow } from '~/components/chat/tool-steps';
+import { agentToolStep, LiveSteps, type ToolPart, ToolStepRow } from '~/components/chat/tool-steps';
+
+/** How many of the latest steps show under a working reply's header. */
+const LIVE_STEPS = 3;
+
 import { type WorkStep, workActivity, workSummary } from '~/components/chat/work-summary';
 import { useMediaQuery } from '~/hooks/use-media-query';
 import { cn } from '~/lib/utils';
@@ -29,6 +33,7 @@ export function WorkDisclosure({
   active,
   kind,
   preview,
+  live,
   headerRef,
   children,
 }: {
@@ -40,6 +45,8 @@ export function WorkDisclosure({
   kind: 'reasoning' | 'work';
   /** The latest reasoning while the model is thinking. */
   preview?: string;
+  /** The latest steps while the agent works and the person has not opened the block. */
+  live?: ReactNode;
   headerRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }) {
@@ -68,7 +75,7 @@ export function WorkDisclosure({
           data-thinking-indicator={active ? '' : undefined}
           className={cn('size-4 shrink-0', active && !reduceMotion && 'motion-safe:animate-pulse')}
         />
-        <span className="min-w-0 break-words">{label}</span>
+        <span className={cn('min-w-0 break-words', active && 'text-shimmer')}>{label}</span>
         <ChevronDown
           aria-hidden="true"
           className={cn(
@@ -77,6 +84,7 @@ export function WorkDisclosure({
           )}
         />
       </button>
+      {live !== undefined && choice === null && live}
       {preview !== undefined && choice === null && (
         <ReasoningPreview text={preview} onExpand={() => setChoice(true)} />
       )}
@@ -145,6 +153,12 @@ export function WorkBlock({
   const icon = steps.length === 0 && (hasReasoning || thinking) ? Brain : Wrench;
   const latest = work.at(-1);
   const preview = thinking && latest?.type === 'reasoning' ? latest.text : undefined;
+  // While the agent works, its last few steps show under the header, so the
+  // person sees what it is doing without opening the block.
+  const recentTools =
+    streaming && !reasoningOnly
+      ? work.flatMap((entry) => (entry.type === 'tool' ? [entry.part] : [])).slice(-LIVE_STEPS)
+      : [];
 
   // Announce each new activity of the block, never each token.
   const [announcement, setAnnouncement] = useState('');
@@ -161,6 +175,7 @@ export function WorkBlock({
         active={reasoningOnly ? thinking : activity !== null}
         kind={reasoningOnly ? 'reasoning' : 'work'}
         preview={preview}
+        live={recentTools.length > 0 ? <LiveSteps parts={recentTools} /> : undefined}
       >
         {reasoningOnly && latest?.type === 'reasoning' ? (
           <>

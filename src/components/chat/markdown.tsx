@@ -370,13 +370,22 @@ export const MARKDOWN_PROSE = cn(
 
 // Cache at the wrapper boundary, before normalization and the lazy renderer.
 // Safety props and URL transforms participate in the default shallow comparison.
+/**
+ * Some models (gpt-oss) put narrow no-break spaces between words and numbers;
+ * in this typeface they read as no space at all ("3PM", "SanSalvador"). Shown
+ * as ordinary no-break spaces: the same meaning, a readable width.
+ */
+const readableSpaces = (text: string) =>
+  text.includes('\u202f') ? text.replace(/\u202f/g, '\u00a0') : text;
+
 export const Markdown = memo(function Markdown({
-  children,
+  children: source,
   className,
   math,
   skipHtml,
   urlTransform,
 }: MarkdownProps) {
+  const children = readableSpaces(source);
   // Its headings continue from the page's h1 without skipping a level (#271).
   const levels = useMemo(() => headingLevelsOf(children), [children]);
   // Already loaded: the final Markdown on the first paint, without a Suspense

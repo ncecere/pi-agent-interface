@@ -152,3 +152,29 @@
     transform: translateY(-2px);
   }
 }
+
+/* A label for work in progress ("Thinking…", "Using bash…"): a soft light passes over it. */
+.text-shimmer {
+  background:
+    linear-gradient(90deg, var(--text-primary) 35%, var(--text-muted) 50%, var(--text-primary) 65%)
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: text-shimmer 2.2s linear infinite;
+}
+@keyframes text-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-shimmer {
+    animation: none;
+    background: none;
+    color: inherit;
+  }
+}

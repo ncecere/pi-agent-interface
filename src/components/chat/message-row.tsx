@@ -1,6 +1,6 @@
 import type { UIMessage } from 'ai';
 import { Clock } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useId, useState } from 'react';
 import type { Agent } from '~/api/client';
 import { AgentAvatar } from '~/components/agent/agent-avatar';
 import { MARKDOWN_PROSE, Markdown } from '~/components/chat/markdown';
@@ -86,7 +86,7 @@ export const MessageRow = memo(function MessageRow({
             pending && 'opacity-80',
           )}
         >
-          <Markdown math={false}>{text}</Markdown>
+          <FoldedText text={text} />
         </div>
         {pending ? (
           <p
@@ -133,7 +133,7 @@ export const MessageRow = memo(function MessageRow({
         {streaming && agent && !text && !reasoningOf(message) && !message.parts.some(isToolPart) ? (
           // Nothing of the reply yet: say so beside its avatar, instead of a second one below.
           <p role="status" className="flex h-7 items-center text-xs text-[var(--text-muted)]">
-            Thinking…
+            <span className="text-shimmer">Thinking…</span>
           </p>
         ) : (
           <ReplyBody key={message.id} message={message} text={text} streaming={streaming} />
@@ -193,6 +193,43 @@ function ReplyBody({
           <Markdown className={MARKDOWN_PROSE}>{text.slice(group.start, group.end)}</Markdown>
         </div>
       ))}
+    </>
+  );
+}
+
+/** A message longer than this many lines, or characters, is folded until asked. */
+const FOLD_LINES = 12;
+const FOLD_CHARS = 1_200;
+
+/**
+ * The person's own message. A long one (a pasted log, a document) folds to
+ * its first lines with "Show more", so it does not push the reply off screen.
+ */
+function FoldedText({ text }: { text: string }) {
+  const long = text.split('\n').length > FOLD_LINES || text.length > FOLD_CHARS;
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  if (!long) return <Markdown math={false}>{text}</Markdown>;
+  return (
+    <>
+      <div
+        id={id}
+        className={cn(
+          !open &&
+            'max-h-[18rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]',
+        )}
+      >
+        <Markdown math={false}>{text}</Markdown>
+      </div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen(!open)}
+        className="mt-1 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+      >
+        {open ? 'Show less' : 'Show more'}
+      </button>
     </>
   );
 }
