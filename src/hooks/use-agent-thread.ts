@@ -1,0 +1,328 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApiError, api, type ChatView, errorMessage, noteUnauthorized, unwrap } from '~/api/client';
+import { noteNewThread, threadsKey } from '~/hooks/use-agents';
+import {
+  type AgentUIMessage,
+  type PendingMessage,
+  reuseUnchanged,
+  userMessagesWithText,
+  viewToMessages,
+} from '~/lib/chat-view';
+import { isFinal, readEventStream } from '~/lib/sse';
+
+/** The platform's limit on one message. */
+export const AGENT_MESSAGE_MAX_LENGTH = 32_000;
+
+/**
+ * How this page follows the conversation. `idle` before a new conversation's
+ * first message is accepted (it does not exist yet); `paused` while the tab
+ * is hidden and the agent is not working (an open stream keeps the agent
+ * awake, so a forgotten tab would keep it from hibernating).
+ */
+export type Connection =
+  | 'idle'
+  | 'connecting'
+  | 'live'
+  | 'reconnecting'
+  | 'paused'
+  | 'not-found'
+  | 'failed';
+
+const RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000];
+/** How long a hidden tab keeps an idle agent's stream open. */
+const HIDDEN_GRACE_MS = 60_000;
+
+/** A first message handed over by the home page, sent once the conversation opens. */
+export interface Handover {
+  agentId: string;
+  threadId: string;
+  text: string;
+  requestId: string;
+  /** The person was typing: keep the cursor in the composer. */
+  focus: boolean;
+}
+
+const HANDOVER_KEY = 'pai.handover';
+
+export function writeHandover(handover: Handover) {
+  sessionStorage.setItem(HANDOVER_KEY, JSON.stringify(handover));
+}
+
+export function peekHandover(agentId: string, threadId: string): Handover | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(HANDOVER_KEY) ?? 'null') as Handover | null;
+    return value && value.agentId === agentId && value.threadId === threadId ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearHandover(threadId: string) {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(HANDOVER_KEY) ?? 'null') as Handover | null;
+    if (value?.threadId === threadId) sessionStorage.removeItem(HANDOVER_KEY);
+  } catch {
+    sessionStorage.removeItem(HANDOVER_KEY);
+  }
+}
+
+/** Removes pending messages the transcript now has, oldest first. */
+function reconcile(pending: PendingMessage[], view: ChatView): PendingMessage[] {
+  const consumed = new Map<string, number>();
+  const left = pending.filter((message) => {
+    if (message.state === 'failed') return true;
+    const text = message.text.trim();
+    const before = consumed.get(text) ?? 0;
+    if (userMessagesWithText(view, text) >= message.baseline + before + 1) {
+      consumed.set(text, before + 1);
+      return false;
+    }
+    return true;
+  });
+  return left.length === pending.length ? pending : left;
+}
+
+/**
+ * One conversation with an agent: its transcript as the platform streams it,
+ * messages sent from this tab until the transcript has them, and stop.
+ *
+ * The platform is the only record. Every `view` event is the whole
+ * conversation, so reconnecting needs no replay: the first event after it is
+ * the current state.
+ */
+export function useAgentThread({
+  agentId,
+  threadId,
+  handover,
+}: {
+  agentId: string;
+  threadId: string;
+  /** Set for a conversation started on the home page: it exists once this is accepted. */
+  handover: Handover | null;
+}) {
+  const queryClient = useQueryClient();
+  const [view, setView] = useState<ChatView | null>(null);
+  const viewRef = useRef<ChatView | null>(null);
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  const [draft, setDraft] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [connection, setConnection] = useState<Connection>(handover ? 'idle' : 'connecting');
+  const [connectError, setConnectError] = useState<string | null>(null);
+  // The conversation exists on the platform: an existing one, or a new one
+  // whose first message was accepted. The stream 404s before that.
+  const [exists, setExists] = useState(!handover);
+  const [hidden, setHidden] = useState(() => document.visibilityState === 'hidden');
+  const [reconnectKey, setReconnectKey] = useState(0);
+
+  // ---- The stream -------------------------------------------------------
+  useEffect(() => {
+    const onVisibility = () => setHidden(document.visibilityState === 'hidden');
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  // Hidden and idle for a while: let the agent hibernate.
+  const busy = view?.busy ?? false;
+  const [pausedForHidden, setPausedForHidden] = useState(false);
+  useEffect(() => {
+    if (!hidden) {
+      setPausedForHidden(false);
+      return;
+    }
+    if (busy) return;
+    const timer = setTimeout(() => setPausedForHidden(true), HIDDEN_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [hidden, busy]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reconnectKey is the trigger for Retry and Resume
+  useEffect(() => {
+    if (!exists) return;
+    if (pausedForHidden) {
+      setConnection('paused');
+      return;
+    }
+    const abort = new AbortController();
+    const url = `/v1/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}/events`;
+    let attempt = 0;
+
+    void (async () => {
+      setConnection((current) => (current === 'live' ? 'reconnecting' : 'connecting'));
+      while (!abort.signal.aborted) {
+        try {
+          await readEventStream(
+            url,
+            (event) => {
+              if (event.event !== 'view') return;
+              const next = JSON.parse(event.data) as ChatView;
+              attempt = 0;
+              viewRef.current = next;
+              setView(next);
+              setConnection('live');
+              setConnectError(null);
+              setPending((current) => reconcile(current, next));
+            },
+            abort.signal,
+          );
+          // The platform ended the stream (the runtime restarted, or idled
+          // out): follow again straight away.
+          if (abort.signal.aborted) return;
+          setConnection('reconnecting');
+        } catch (error) {
+          if (abort.signal.aborted) return;
+          if (isFinal(error)) {
+            if (error.status === 401) noteUnauthorized();
+            setConnection(error.status === 404 ? 'not-found' : 'failed');
+            setConnectError(error.message);
+            return;
+          }
+          setConnection('reconnecting');
+          setConnectError(errorMessage(error, 'The connection to the agent was lost.'));
+        }
+        const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!;
+        attempt++;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    })();
+    return () => abort.abort();
+  }, [agentId, threadId, exists, pausedForHidden, reconnectKey]);
+
+  const reconnect = useCallback(() => {
+    setPausedForHidden(false);
+    setReconnectKey((key) => key + 1);
+  }, []);
+
+  // A stop is over once the agent is no longer working.
+  useEffect(() => {
+    if (!busy) setStopping(false);
+  }, [busy]);
+
+  // The reply ended: its conversation moved up the list (and may be new there).
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (wasBusy.current && !busy)
+      void queryClient.invalidateQueries({ queryKey: threadsKey(agentId) });
+    wasBusy.current = busy;
+  }, [busy, agentId, queryClient]);
+
+  // ---- Sending ----------------------------------------------------------
+  const submit = useCallback(
+    async (text: string, requestId: string = crypto.randomUUID()) => {
+      const content = text.trim();
+      if (!content) return false;
+      setSendError(null);
+      setPending((current) =>
+        current.some((message) => message.requestId === requestId)
+          ? current
+          : [
+              ...current.filter((message) => message.state !== 'failed'),
+              {
+                requestId,
+                text: content,
+                state: 'sending',
+                baseline: userMessagesWithText(viewRef.current, content),
+              },
+            ],
+      );
+      try {
+        unwrap(
+          await api.POST('/v1/agents/{agentId}/threads/{threadId}/messages', {
+            params: { path: { agentId, threadId } },
+            body: { text: content, requestId },
+          }),
+        );
+        setPending((current) =>
+          current.map((message) =>
+            message.requestId === requestId && message.state === 'sending'
+              ? { ...message, state: 'queued' }
+              : message,
+          ),
+        );
+        if (!exists) {
+          noteNewThread(queryClient, agentId, threadId, content);
+          setExists(true);
+        }
+        clearHandover(threadId);
+        return true;
+      } catch (error) {
+        setPending((current) =>
+          current.map((message) =>
+            message.requestId === requestId ? { ...message, state: 'failed' } : message,
+          ),
+        );
+        // Back into the composer, unless something new was typed meanwhile.
+        setDraft((current) => (current.trim() ? current : content));
+        setSendError(
+          error instanceof ApiError && error.status === 401
+            ? 'Your session has ended. Sign in again to send this message.'
+            : `Your message wasn't sent, so it's back in the message box. ${errorMessage(error, '')}`.trim(),
+        );
+        clearHandover(threadId);
+        return false;
+      }
+    },
+    [agentId, threadId, exists, queryClient],
+  );
+
+  const send = useCallback(async () => {
+    const text = draft;
+    if (!text.trim() || text.trim().length > AGENT_MESSAGE_MAX_LENGTH) return;
+    setDraft('');
+    await submit(text);
+  }, [draft, submit]);
+
+  // The home page's first message, once.
+  const handedOver = useRef(false);
+  useEffect(() => {
+    if (!handover || handedOver.current) return;
+    handedOver.current = true;
+    void submit(handover.text, handover.requestId);
+  }, [handover, submit]);
+
+  const stop = useCallback(async () => {
+    setStopping(true);
+    try {
+      unwrap(
+        await api.POST('/v1/agents/{agentId}/threads/{threadId}/stop', {
+          params: { path: { agentId, threadId } },
+        }),
+      );
+    } catch (error) {
+      setStopping(false);
+      setSendError(errorMessage(error, "The agent couldn't be stopped. Try again."));
+    }
+  }, [agentId, threadId]);
+
+  // ---- What the page shows ----------------------------------------------
+  const previous = useRef<AgentUIMessage[]>([]);
+  const messages = useMemo(() => {
+    const next = reuseUnchanged(previous.current, viewToMessages(view, pending));
+    previous.current = next;
+    return next;
+  }, [view, pending]);
+
+  const waitingForAgent = pending.some((message) => message.state !== 'failed');
+
+  return {
+    view,
+    messages,
+    /** The agent is working on a reply in this conversation. */
+    busy,
+    /** Sent from this tab and not taken up by the agent yet. */
+    waitingForAgent,
+    pending,
+    connection,
+    connectError,
+    reconnect,
+    /** Loaded: the first view arrived (or the conversation is new). */
+    ready: view !== null || !exists,
+    draft,
+    setDraft,
+    send,
+    sendError,
+    clearSendError: () => setSendError(null),
+    stop,
+    stopping,
+  };
+}

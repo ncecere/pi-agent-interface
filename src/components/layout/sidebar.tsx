@@ -2,19 +2,14 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { PanelLeft, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Wordmark } from '~/components/brand/wordmark';
-import { SidebarProjects } from '~/components/layout/sidebar-projects';
-import { ThreadList } from '~/components/layout/thread-list';
-import { ThreadSearchResults } from '~/components/layout/thread-search-results';
+import { SidebarAgents } from '~/components/layout/sidebar-agents';
 import { UserMenu } from '~/components/layout/user-menu';
 import { Button } from '~/components/ui/button';
-import { useAuthStatus } from '~/hooks/use-auth-status';
-import { useCreateThread } from '~/hooks/use-threads';
-import { useConfirmRemovedConversation } from '~/hooks/use-unused-conversation';
+import { useAuthConfig } from '~/hooks/use-session';
 import { focusComposerSoon } from '~/lib/focus-after-navigation';
 import { ariaKeyShortcuts } from '~/lib/keyboard-shortcuts';
 import { loopTab } from '~/lib/tab-loop';
 import { cn } from '~/lib/utils';
-import { useTemporaryChat } from '~/providers/temporary-chat-provider';
 
 interface SidebarProps {
   open: boolean;
@@ -23,27 +18,17 @@ interface SidebarProps {
 }
 
 export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
-  // Read here rather than threaded through the shell: the header needs the
-  // logo and short name too, and the status query is already cached.
-  const { data: status } = useAuthStatus();
-  const branding = status?.branding;
+  const { data: config } = useAuthConfig();
+  const instance = config?.instance;
   const [search, setSearch] = useState('');
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
-  const createThread = useCreateThread();
-  const { setTemporary } = useTemporaryChat();
-  // After a reload that removed an unused conversation, not listed (#266).
-  useConfirmRemovedConversation();
 
   useEffect(() => {
     if (mobile && open) closeButtonRef.current?.focus();
   }, [mobile, open]);
 
   async function handleNewChat() {
-    // New Chat is an ordinary chat, as the top bar's "+" and the shortcut are:
-    // the button alone kept temporary mode, so work started here was deleted
-    // after 24 hours (#340).
-    setTemporary(false);
     await navigate({ to: '/' });
     if (mobile) onToggle();
     // After the drawer's own focus return, so the message box wins (#251).
@@ -81,12 +66,7 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
         {/* Mark and name sit beside the toggle (v0.10): centring them needed a
             spacer that left too little room for the full default name. */}
         <Link to="/" className="flex min-w-0 flex-1 items-center px-2">
-          <Wordmark
-            name={branding?.appName}
-            shortName={branding?.shortName}
-            logoUrl={branding?.logoUrl}
-            compact
-          />
+          <Wordmark name={instance?.name} logoUrl={instance?.logoUrl} compact />
         </Link>
       </div>
 
@@ -95,7 +75,6 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
           variant="primary"
           className="h-9 w-full font-semibold"
           onClick={handleNewChat}
-          disabled={createThread.isPending}
           aria-keyshortcuts={ariaKeyShortcuts('new-chat')}
         >
           New Chat
@@ -113,8 +92,8 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
               setSearch('');
             }
           }}
-          placeholder="Search your conversations..."
-          aria-label="Search your conversations"
+          placeholder="Search agents and conversations..."
+          aria-label="Search agents and conversations"
           dir="auto"
           aria-describedby="thread-search-hint"
           className="h-11 w-full bg-transparent pl-8 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
@@ -122,20 +101,13 @@ export function Sidebar({ open, mobile, onToggle }: SidebarProps) {
       </div>
 
       <p id="thread-search-hint" className="sr-only">
-        Searches titles and message text. Results appear below.
+        Filters agents by name and open agents' conversations by title.
       </p>
 
       <div className="mx-3 h-px bg-[var(--border-subtle)]" />
 
       <nav className="scrollbar-thin flex-1 overflow-y-auto px-3 py-3">
-        {search.trim() ? (
-          <ThreadSearchResults query={search} />
-        ) : (
-          <>
-            <SidebarProjects />
-            <ThreadList />
-          </>
-        )}
+        <SidebarAgents filter={search} />
       </nav>
 
       <div className="hidden items-center gap-1 p-2 lg:flex">

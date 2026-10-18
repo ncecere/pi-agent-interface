@@ -1,4 +1,4 @@
-import { plainTextOfMarkdown } from '@oci/shared';
+import { plainTextOfMarkdown } from '~/shared';
 
 /**
  * A message's opening words as plain text ("Walk3 table: give me a small…"),

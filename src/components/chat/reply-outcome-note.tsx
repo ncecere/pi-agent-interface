@@ -1,6 +1,5 @@
 import { RefreshCw } from 'lucide-react';
 import { Button } from '~/components/ui/button';
-import { readOnlyShortReason, useReadOnlyStatus } from '~/lib/read-only';
 
 /** A stored reason as a sentence; the server's own reasons have no full stop. */
 function sentence(text: string): string {
@@ -26,7 +25,6 @@ export function ReplyFailureNote({
   onRetry?: () => void;
   latest: boolean;
 }) {
-  const readOnly = useReadOnlyStatus();
   return (
     <div
       role={latest ? 'alert' : 'note'}
@@ -36,13 +34,7 @@ export function ReplyFailureNote({
         <span className="font-medium">This reply failed.</span> {sentence(reason)}
       </p>
       {onRetry && (
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={readOnly.active}
-          title={readOnly.active ? readOnlyShortReason(readOnly) : undefined}
-          onClick={onRetry}
-        >
+        <Button variant="secondary" size="sm" onClick={onRetry}>
           <RefreshCw aria-hidden="true" />
           Try again
         </Button>

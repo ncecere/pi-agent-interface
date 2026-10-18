@@ -1,6 +1,6 @@
-import { instanceName } from '@oci/shared';
 import { TurnsMark } from '~/components/brand/turns-mark';
 import { cn } from '~/lib/utils';
+import { instanceName } from '~/shared';
 
 /**
  * The longest name the compact header shows in full beside the mark; longer

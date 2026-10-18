@@ -1,286 +1,211 @@
-import type { CatalogModel } from '@oci/shared';
-import { useNavigate } from '@tanstack/react-router';
-import { Clock } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { MessageSquare } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Agent } from '~/api/client';
+import { AgentAvatar, agentStatusLabel } from '~/components/agent/agent-avatar';
+import { AgentPicker } from '~/components/agent/agent-picker';
 import { Composer } from '~/components/chat/composer';
-import { DEFAULT_PROMPTS, SUGGESTION_CATEGORIES } from '~/components/chat/suggestions';
-import { ProjectChatNotice } from '~/components/projects/project-chat-notice';
-import { useAttachments } from '~/hooks/use-attachments';
-import { useComposerEffort } from '~/hooks/use-composer-effort';
-import { useCurrentUser } from '~/hooks/use-current-user';
-import { useModels, useModelsHiddenFromRole } from '~/hooks/use-models';
-import { useCreateThread } from '~/hooks/use-threads';
-import { apiErrorMessage } from '~/lib/api-client';
+import { writeHandover } from '~/hooks/use-agent-thread';
+import {
+  chattable,
+  newThreadId,
+  noteNewThread,
+  useAgents,
+  useAgentThreads,
+} from '~/hooks/use-agents';
+import { useCurrentUser } from '~/hooks/use-session';
+import { usePageTitle } from '~/lib/document-title';
 import { focusComposerOnArrival } from '~/lib/focus-after-navigation';
 import { greetingName } from '~/lib/greeting-name';
-import { useClearReadOnlyRefusal } from '~/lib/read-only-refusals';
-import { reasoningEffortForRequest } from '~/lib/reasoning';
-import { forgetBrowserModel, startingModel } from '~/lib/starting-model';
-import { clearRestoredDraft, peekRestoredDraft } from '~/lib/unused-conversation';
 import { cn } from '~/lib/utils';
-import { useTemporaryChat } from '~/providers/temporary-chat-provider';
 
-type CategoryId = (typeof SUGGESTION_CATEGORIES)[number]['id'];
+const LAST_AGENT_KEY = 'pai.lastAgent';
 
-const EMPTY_MODELS: CatalogModel[] = [];
-const PENDING_KEY = 'oci.pendingPrompt';
-const PENDING_THREAD_KEY = 'oci.pendingThreadId';
-const PENDING_ATTACHMENTS_KEY = 'oci.pendingAttachments';
-const PENDING_EFFORT_KEY = 'oci.pendingEffort';
-/** The model chosen here, handed to the new conversation (v0.10; was `oci.model`). */
-const PENDING_MODEL_KEY = 'oci.pendingModel';
-const PENDING_SEARCH_KEY = 'oci.pendingWebSearch';
-/** Set when the person was typing in the composer, so the conversation keeps focus there. */
-const PENDING_FOCUS_KEY = 'oci.pendingComposerFocus';
+export function rememberAgent(agentId: string) {
+  localStorage.setItem(LAST_AGENT_KEY, agentId);
+}
+
+/** The agent a new chat starts with: the one asked for, the last used, or the first. */
+function startingAgent(agents: Agent[], requested: string | undefined): Agent | null {
+  const find = (id: string | null | undefined) =>
+    id ? agents.find((agent) => agent.id === id) : undefined;
+  return find(requested) ?? find(localStorage.getItem(LAST_AGENT_KEY)) ?? agents[0] ?? null;
+}
+
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+function ago(ms: number): string {
+  const minutes = Math.round((ms - Date.now()) / 60_000);
+  if (Math.abs(minutes) < 60) return relative.format(minutes, 'minute');
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return relative.format(hours, 'hour');
+  return relative.format(Math.round(hours / 24), 'day');
+}
 
 /**
- * Landing page. Sending here creates a thread first, then hands the prompt to
- * the thread view so the streaming connection belongs to a real thread ID.
- *
- * With `projectId` (from "New chat in project"), the new conversation is
- * created inside that project. A project chat is never temporary.
+ * Landing page: choose an agent and say what to do. Sending opens the new
+ * conversation at once with the message handed over; the conversation page
+ * sends it, so a slow agent start shows there, not as a frozen home page.
  */
-export function ChatHomePage({ projectId }: { projectId?: string } = {}) {
-  const { data } = useCurrentUser();
-  const modelsQuery = useModels();
-  const hiddenFromRole = useModelsHiddenFromRole();
-  const models = modelsQuery.data ?? EMPTY_MODELS;
-  // Until the models and the person's features arrive, nothing is said about
-  // them: "No models are available yet" was shown for as long as the request
-  // took, and the greeting and Attach appeared later, moving the page (#156).
-  const loading = modelsQuery.isPending || !data;
+export function ChatHomePage({ agentId }: { agentId?: string }) {
+  const me = useCurrentUser();
+  const agentsQuery = useAgents();
+  const agents = useMemo(() => chattable(agentsQuery.data), [agentsQuery.data]);
   const navigate = useNavigate();
-  const { mutateAsync: createThread } = useCreateThread();
-  const { temporary: temporaryMode, setTemporary } = useTemporaryChat();
-  const temporary = temporaryMode && !projectId;
-  // A project chat is never temporary, so the mode is switched off here
-  // rather than left highlighted in the top bar over a chat that will be kept.
-  useEffect(() => {
-    if (projectId && temporaryMode) setTemporary(false);
-  }, [projectId, temporaryMode, setTemporary]);
+  const queryClient = useQueryClient();
+  usePageTitle(null);
 
-  const [activeCategory, setActiveCategory] = useState<CategoryId | null>(null);
-  // The unsent text of a conversation this tab removed as it reloaded (#266).
-  const [draft, setDraftValue] = useState(peekRestoredDraft);
-  useEffect(() => clearRestoredDraft(), []);
-  /**
-   * One conversation per send (v0.10.2). `started` is set synchronously before
-   * the first await, so a key that repeats, an automated browser flooding
-   * Enter, or a second click cannot start another conversation while the
-   * first is being created; in v0.10.1 each one was another empty "New Chat".
-   * It stays set once the prompt is handed over, because this page can still
-   * be on screen before the conversation renders. A failure releases it, and
-   * so does editing the draft once nothing is outstanding.
-   */
+  const [chosenId, setChosenId] = useState<string | undefined>(agentId);
+  useEffect(() => setChosenId(agentId), [agentId]);
+  const agent = useMemo(() => startingAgent(agents, chosenId), [agents, chosenId]);
+  const selectAgent = useCallback(
+    (next: Agent) => {
+      setChosenId(next.id);
+      rememberAgent(next.id);
+      void navigate({ to: '/', search: { agent: next.id }, replace: true });
+    },
+    [navigate],
+  );
+
+  const [draft, setDraft] = useState('');
   const started = useRef(false);
-  const creating = useRef(false);
   const [submitting, setSubmitting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  // A read-only refusal goes once changes are accepted again (#308).
-  useClearReadOnlyRefusal(startError, () => setStartError(null));
-  const setDraft = useCallback((value: string) => {
-    setDraftValue(value);
-    if (started.current && !creating.current) {
-      started.current = false;
-      setSubmitting(false);
-    }
-  }, []);
-  const [webSearch, setWebSearch] = useState(false);
-  // A model picked here applies to the conversation it starts; otherwise the
-  // person's own default (Settings → Models), then the instance default.
-  const [modelSlug, setModelSlug] = useState<string | null>(null);
-  const { items: attachmentItems, upload, remove, handOver: handOverUploads } = useAttachments();
-  useEffect(() => forgetBrowserModel(), []);
-  // A new chat is there to be typed in: the cursor starts in the box, however
-  // the person arrived (#251). Not on a touch-only device (see touchOnly).
   useEffect(() => focusComposerOnArrival(), []);
 
-  const selectedModel = startingModel(models, modelSlug, data?.chat?.defaultModelSlug);
-  // The person's default level, else the administrator's, clamped to what this
-  // model and role allow.
-  const [effort, setEffort] = useComposerEffort(selectedModel);
+  // Recent conversations with this agent. Listing wakes it, which also means
+  // it is ready by the time the first message is sent.
+  const threads = useAgentThreads(agent?.id, Boolean(agent));
+  const recent = threads.data?.slice(0, 5) ?? [];
 
-  // What the introduction asked to be called, else the account's given name (#315).
-  const firstName = data && greetingName(data.user.name, data.preferences?.displayName);
-  const prompts =
-    SUGGESTION_CATEGORIES.find((category) => category.id === activeCategory)?.prompts ??
-    DEFAULT_PROMPTS;
-
-  const selectModel = useCallback((model: CatalogModel) => setModelSlug(model.slug), []);
-
-  const handOver = useCallback(
-    async (content: string, selectedModel: CatalogModel) => {
-      // Read before any await: the composer is replaced when the conversation opens.
+  const start = useCallback(
+    async (text: string) => {
+      const content = text.trim();
+      if (!content || !agent || started.current) return;
+      started.current = true;
+      setSubmitting(true);
       const typing =
         document.activeElement instanceof HTMLTextAreaElement &&
         document.activeElement.getAttribute('aria-label') === 'Message input';
-
-      const { thread } = await createThread(
-        projectId ? { temporary: false, projectId } : { temporary },
-      );
-      // Invalidate the old destination before changing any payload fields.
-      sessionStorage.removeItem(PENDING_THREAD_KEY);
-      sessionStorage.setItem(PENDING_KEY, content);
-      sessionStorage.setItem(PENDING_MODEL_KEY, selectedModel.slug);
-      const requestEffort = reasoningEffortForRequest(selectedModel, effort);
-      if (requestEffort) sessionStorage.setItem(PENDING_EFFORT_KEY, requestEffort);
-      else sessionStorage.removeItem(PENDING_EFFORT_KEY);
-      if (webSearch) sessionStorage.setItem(PENDING_SEARCH_KEY, 'true');
-      else sessionStorage.removeItem(PENDING_SEARCH_KEY);
-      if (typing) sessionStorage.setItem(PENDING_FOCUS_KEY, 'true');
-      else sessionStorage.removeItem(PENDING_FOCUS_KEY);
-
-      // Hand any uploads over to the thread view along with the prompt.
-      const readyAttachments = attachmentItems.flatMap((item) =>
-        item.attachment ? [item.attachment] : [],
-      );
-      if (readyAttachments.length > 0) {
-        // Carry display metadata as well as IDs so the first sent bubble can
-        // render its attachment cards immediately.
-        sessionStorage.setItem(PENDING_ATTACHMENTS_KEY, JSON.stringify(readyAttachments));
-      } else {
-        sessionStorage.removeItem(PENDING_ATTACHMENTS_KEY);
-      }
-
-      sessionStorage.setItem(PENDING_THREAD_KEY, thread.id);
-      // The conversation sends them: this page must not discard them as it goes (#297).
-      handOverUploads(readyAttachments.map((file) => file.id));
-      await navigate({ to: '/chat/$threadId', params: { threadId: thread.id } });
+      const threadId = newThreadId();
+      writeHandover({
+        agentId: agent.id,
+        threadId,
+        text: content,
+        requestId: crypto.randomUUID(),
+        focus: typing,
+      });
+      rememberAgent(agent.id);
+      noteNewThread(queryClient, agent.id, threadId, content);
+      await navigate({
+        to: '/agents/$agentId/threads/$threadId',
+        params: { agentId: agent.id, threadId },
+      });
     },
-    [
-      createThread,
-      temporary,
-      projectId,
-      effort,
-      webSearch,
-      attachmentItems,
-      handOverUploads,
-      navigate,
-    ],
+    [agent, navigate, queryClient],
   );
 
-  const startThread = useCallback(
-    async (text: string) => {
-      const content = text.trim();
-      if (!content || !selectedModel || started.current) return;
-      started.current = true;
-      creating.current = true;
-      setSubmitting(true);
-      setStartError(null);
-      try {
-        await handOver(content, selectedModel);
-      } catch (error) {
-        started.current = false;
-        setSubmitting(false);
-        // Such as the server's limit on starting conversations (429).
-        setStartError(apiErrorMessage(error, 'The conversation could not be started. Try again.'));
-        throw error;
-      } finally {
-        creating.current = false;
-      }
-    },
-    [selectedModel, handOver],
-  );
-
-  const submit = useCallback(() => startThread(draft), [startThread, draft]);
+  const firstName = me && greetingName(me.user.displayName, null);
+  const loading = agentsQuery.isPending;
 
   return (
     <div className="flex h-full flex-col justify-center md:justify-normal">
-      {/* Desktop uses the upper-middle region; mobile centers the compact prompt. */}
-      {/* On phones, room between the greeting and the centred composer (#102). */}
       <div className="flex-none px-4 pb-8 md:flex-1 md:overflow-y-auto md:pt-[11vh] md:pb-0">
         <div className="mx-auto w-full max-w-[41.75rem]">
-          <h1 className="block items-center gap-3 text-center text-[1.375rem] font-bold leading-tight tracking-tight md:flex md:text-left md:text-[1.875rem]">
-            {temporary && <Clock className="size-7 text-[var(--accent-bright)]" />}
-            {temporary ? (
-              'Temporary chat'
-            ) : (
-              // One text item, so the flex gap (for the icon) never lands after
-              // the comma, and the name is in the DOM once, not once per
-              // breakpoint (#94). On phones the name wraps to its own line.
-              // Hidden, with room for the name, until it is known.
-              <span className={cn(!data && 'invisible')}>
-                How can I help you{firstName || !data ? ', ' : '?'}
-                {(firstName || !data) && (
-                  <span className="block md:inline">{firstName ?? '\u00a0'}?</span>
-                )}
-              </span>
-            )}
+          <h1 className="flex flex-col items-center gap-3 text-center text-[1.375rem] font-bold leading-tight tracking-tight md:flex-row md:text-left md:text-[1.875rem]">
+            {agent && <AgentAvatar agent={agent} size="lg" showStatus />}
+            <span className={cn(!agent && !loading && 'text-[var(--text-secondary)]')}>
+              {agent ? (
+                <>
+                  What should {agent.name} work on
+                  {firstName ? <span className="block md:inline">, {firstName}?</span> : '?'}
+                </>
+              ) : loading ? (
+                <span className="invisible">Loading</span>
+              ) : (
+                'No agents yet'
+              )}
+            </span>
           </h1>
-          {temporary && (
-            <p className="mt-2 text-center text-sm text-[var(--text-muted)] md:text-left">
-              This conversation stays out of history and expires automatically after 24 hours.
+          {agent && (
+            <p className="mt-3 text-center text-sm text-[var(--text-muted)] md:text-left">
+              {agent.description || agent.templateName}
+              <span className="mx-1.5" aria-hidden="true">
+                ·
+              </span>
+              <span>{agentStatusLabel(agent)}</span>
             </p>
           )}
-          {projectId && <ProjectChatNotice projectId={projectId} />}
 
-          <div className="mt-7 hidden flex-wrap gap-2.5 md:flex">
-            {SUGGESTION_CATEGORIES.map((category) => {
-              const active = activeCategory === category.id;
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  onClick={() => setActiveCategory(active ? null : category.id)}
+          {agents.length > 1 && (
+            <fieldset className="mt-7 hidden flex-wrap gap-2.5 border-0 p-0 md:flex">
+              <legend className="sr-only">Agents</legend>
+              {agents.slice(0, 8).map((candidate) => {
+                const active = candidate.id === agent?.id;
+                return (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => selectAgent(candidate)}
+                    className={cn(
+                      'inline-flex h-[2.375rem] items-center gap-2 rounded-xl px-3.5 text-sm font-medium transition-colors',
+                      active
+                        ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
+                        : 'bg-[var(--bg-control-alt)] text-[var(--text-secondary)] hover:bg-[var(--bg-control-hover)] hover:text-[var(--text-primary)]',
+                    )}
+                  >
+                    <AgentAvatar agent={candidate} size="sm" />
+                    {candidate.name}
+                  </button>
+                );
+              })}
+            </fieldset>
+          )}
+
+          {agent && recent.length > 0 && (
+            <div className="mt-9 hidden md:block">
+              <h2 className="mb-1 text-[0.6875rem] font-semibold text-[var(--accent-bright)]">
+                Recent with {agent.name}
+              </h2>
+              {recent.map((thread, index) => (
+                <Link
+                  key={thread.threadId}
+                  to="/agents/$agentId/threads/$threadId"
+                  params={{ agentId: agent.id, threadId: thread.threadId }}
                   className={cn(
-                    'inline-flex h-[2.375rem] items-center gap-2 rounded-xl px-5 text-sm font-medium transition-colors',
-                    '[&_svg]:size-4 [&_svg]:shrink-0',
-                    active
-                      ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
-                      : 'bg-[var(--bg-control-alt)] text-[var(--text-secondary)] hover:bg-[var(--bg-control-hover)] hover:text-[var(--text-primary)]',
+                    'flex h-[3.0625rem] w-full items-center gap-3 pr-2 text-left text-[0.9375rem] text-[var(--text-secondary)]',
+                    'transition-colors hover:text-[var(--text-primary)]',
+                    index < recent.length - 1 && 'border-b border-[var(--border-subtle)]/45',
                   )}
                 >
-                  <category.icon />
-                  {category.label}
-                </button>
-              );
-            })}
-          </div>
+                  <MessageSquare
+                    className="size-4 shrink-0 text-[var(--text-muted)]"
+                    aria-hidden="true"
+                  />
+                  <span dir="auto" className="min-w-0 flex-1 truncate">
+                    {thread.title}
+                  </span>
+                  <span className="shrink-0 text-xs text-[var(--text-muted)]">
+                    {ago(thread.updatedAt)}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
 
-          <div className="mt-9 hidden md:block">
-            {prompts.map((prompt, index) => (
-              <button
-                key={prompt}
-                type="button"
-                disabled={submitting}
-                onClick={() => {
-                  // Failures leave the page as it was, ready to try again.
-                  startThread(prompt).catch(() => undefined);
-                }}
-                className={cn(
-                  'block h-[3.0625rem] w-full pr-8 text-left text-[0.9375rem] text-[var(--text-secondary)]',
-                  'transition-colors hover:text-[var(--text-primary)]',
-                  index < prompts.length - 1 && 'border-b border-[var(--border-subtle)]/45',
-                )}
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-
-          {modelsQuery.isSuccess && models.length === 0 && (
+          {agentsQuery.isSuccess && agents.length === 0 && (
             <p className="mt-8 rounded-xl bg-[var(--warning)]/10 px-4 py-3 text-sm text-[var(--warning)]">
-              {/* Kept from every model by their role, the person needs to ask, not
-                  wait for the instance to be set up (#303). */}
-              {hiddenFromRole
-                ? 'No models are available to your role. Ask an administrator.'
-                : 'No models are available yet. An administrator needs to add a provider and enable a model in the catalog.'}
+              {agentsQuery.data.length > 0
+                ? 'Your agents are all disabled. Ask a team owner to enable one.'
+                : "You don't have any agents yet. Agents are created for your team on the platform; ask a team owner or administrator."}
             </p>
           )}
-          {modelsQuery.isError && (
+          {agentsQuery.isError && (
             <p
               role="alert"
               className="mt-8 rounded-xl bg-[var(--danger)]/15 px-4 py-3 text-sm text-[var(--danger-on-tint)]"
             >
-              The list of models could not be loaded. Reload the page to try again.
-            </p>
-          )}
-          {startError && (
-            <p
-              role="alert"
-              className="mt-8 rounded-xl bg-[var(--danger)]/15 px-4 py-3 text-sm text-[var(--danger-on-tint)]"
-            >
-              {startError}
+              The list of agents could not be loaded. Reload the page to try again.
             </p>
           )}
         </div>
@@ -289,22 +214,13 @@ export function ChatHomePage({ projectId }: { projectId?: string } = {}) {
       <Composer
         value={draft}
         onChange={setDraft}
-        onSubmit={submit}
+        onSubmit={() => void start(draft)}
         submitting={submitting}
-        models={models}
-        selectedModel={selectedModel}
-        onSelectModel={selectModel}
-        effort={effort}
-        onEffortChange={setEffort}
-        webSearch={webSearch}
-        onWebSearchChange={setWebSearch}
-        webSearchAvailable={data?.features.webSearch ?? false}
-        // Shown (waiting) until known, so it does not appear later and move the row.
-        attachmentsAvailable={data ? data.features.attachments : true}
-        loading={loading}
-        attachments={attachmentItems}
-        onAttachFiles={upload}
-        onRemoveAttachment={remove}
+        disabled={!agent}
+        placeholder={agent ? `Message ${agent.name}…` : 'No agent to message'}
+        options={
+          <AgentPicker agents={agents} selected={agent} onSelect={selectAgent} loading={loading} />
+        }
       />
     </div>
   );

@@ -1,8 +1,5 @@
-import { summarizeToolPart, type ToolStepSummary } from '@oci/shared';
-import { Brain, ChevronDown, Globe2, type LucideIcon, Wrench } from 'lucide-react';
-import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react';
-import { ArtifactStepRow, artifactStepTitle } from '~/components/artifacts/artifact-tool-step';
-import { useArtifacts } from '~/components/artifacts/artifacts-context';
+import { Brain, ChevronDown, type LucideIcon, Wrench } from 'lucide-react';
+import { type ReactNode, type RefObject, useEffect, useId, useState } from 'react';
 import {
   isReasoningOnly,
   type ReplyLayout,
@@ -13,11 +10,11 @@ import {
   ReasoningPreview,
   ReasoningText,
 } from '~/components/chat/message-reasoning';
-import { SearchStep, SourcesStep } from '~/components/chat/search-grounding';
-import { isArtifactStep, type ToolPart, ToolStepRow } from '~/components/chat/tool-steps';
+import { agentToolStep, type ToolPart, ToolStepRow } from '~/components/chat/tool-steps';
 import { type WorkStep, workActivity, workSummary } from '~/components/chat/work-summary';
 import { useMediaQuery } from '~/hooks/use-media-query';
 import { cn } from '~/lib/utils';
+import type { ToolStepSummary } from '~/shared';
 
 /**
  * The disclosure every work block is: a header button (the label, an icon,
@@ -90,14 +87,10 @@ export function WorkDisclosure({
 
 type Entry = WorkEntry<ToolPart>;
 
-const workStepOf = (step: ToolStepSummary, part: ToolPart): WorkStep => ({
+const workStepOf = (step: ToolStepSummary): WorkStep => ({
   toolId: step.toolId,
   label: step.label,
   state: step.state,
-  target:
-    typeof (part.input as { artifactId?: unknown } | undefined)?.artifactId === 'string'
-      ? (part.input as { artifactId: string }).artifactId
-      : null,
 });
 
 /**
@@ -118,57 +111,30 @@ const workStepOf = (step: ToolStepSummary, part: ToolPart): WorkStep => ({
  * Step changes, not tokens, are announced politely.
  */
 export function WorkBlock({
-  messageId,
   layout,
   streaming,
-  answeredHere,
 }: {
   messageId: string;
   layout: ReplyLayout<ToolPart>;
   streaming: boolean;
-  /** Steps whose approval was answered in this view: focus follows them here. */
-  answeredHere: Set<string>;
 }) {
-  const artifacts = useArtifacts();
-  const header = useRef<HTMLButtonElement>(null);
   const { work } = layout;
   const reasoningOnly = isReasoningOnly(work);
-  const tools = work.flatMap((entry) =>
-    entry.type === 'tool' ? [{ part: entry.part, step: summarizeToolPart(entry.part) }] : [],
-  );
-  // What the summary counts: the search before the reply, then each tool call.
   const steps: WorkStep[] = work.flatMap((entry): WorkStep[] => {
-    if (entry.type === 'search')
-      return [
-        {
-          toolId: 'web_search',
-          label: 'Web search',
-          state: entry.grounding.error ? 'error' : 'done',
-          presearch: true,
-        },
-      ];
-    if (entry.type === 'tool') {
-      const step = workStepOf(summarizeToolPart(entry.part), entry.part);
-      // Still running once the reply has ended: it was stopped mid-way.
-      return [!streaming && step.state === 'running' ? { ...step, state: 'stopped' } : step];
-    }
-    return [];
+    if (entry.type !== 'tool') return [];
+    const step = workStepOf(agentToolStep(entry.part));
+    // Still running once the reply has ended: it was stopped mid-way.
+    return [!streaming && step.state === 'running' ? { ...step, state: 'stopped' } : step];
   });
   const hasReasoning = work.some((entry) => entry.type === 'reasoning');
 
-  // What the model is doing now; nothing once the answer has started or the reply ended.
+  // What the agent is doing now; nothing once the answer has started or the reply ended.
   const thinking = streaming && layout.last === 'reasoning';
   let activity: ReturnType<typeof workActivity> | null = null;
   if (thinking) activity = workActivity({ type: 'reasoning' });
   else if (streaming && layout.last === 'tools' && layout.lastTool) {
-    const step = summarizeToolPart(layout.lastTool);
-    activity = workActivity({
-      type: 'tool',
-      step: workStepOf(step, layout.lastTool),
-      title: isArtifactStep(step.toolId)
-        ? artifactStepTitle(artifacts, messageId, layout.lastTool)
-        : null,
-    });
+    const step = agentToolStep(layout.lastTool);
+    activity = { label: `${step.summary}…`, brief: `Using ${step.label}` };
   }
 
   const label = reasoningOnly
@@ -176,12 +142,7 @@ export function WorkBlock({
       ? 'Thinking…'
       : 'Reasoning'
     : (activity?.label ?? workSummary({ reasoning: hasReasoning, steps }));
-  const icon =
-    hasReasoning || thinking
-      ? Brain
-      : steps.every((step) => step.toolId === 'web_search')
-        ? Globe2
-        : Wrench;
+  const icon = steps.length === 0 && (hasReasoning || thinking) ? Brain : Wrench;
   const latest = work.at(-1);
   const preview = thinking && latest?.type === 'reasoning' ? latest.text : undefined;
 
@@ -192,17 +153,6 @@ export function WorkBlock({
     if (brief) setAnnouncement(`${brief}…`);
   }, [brief]);
 
-  // An approval answered here has moved into the block: keep focus nearby.
-  const answered = tools
-    .filter(({ step }) => answeredHere.has(step.toolCallId))
-    .map(({ step }) => step.toolCallId)
-    .join('\n');
-  useEffect(() => {
-    if (!answered) return;
-    const lost = document.activeElement === document.body || !document.activeElement;
-    if (lost && header.current?.getAttribute('aria-expanded') === 'false') header.current.focus();
-  }, [answered]);
-
   return (
     <>
       <WorkDisclosure
@@ -211,7 +161,6 @@ export function WorkBlock({
         active={reasoningOnly ? thinking : activity !== null}
         kind={reasoningOnly ? 'reasoning' : 'work'}
         preview={preview}
-        headerRef={header}
       >
         {reasoningOnly && latest?.type === 'reasoning' ? (
           <>
@@ -220,12 +169,7 @@ export function WorkBlock({
           </>
         ) : (
           <>
-            <WorkTimeline
-              messageId={messageId}
-              entries={work}
-              streaming={streaming}
-              answeredHere={answeredHere}
-            />
+            <WorkTimeline entries={work} />
             {hasReasoning && <ReasoningNote />}
           </>
         )}
@@ -239,17 +183,7 @@ export function WorkBlock({
   );
 }
 
-function WorkTimeline({
-  messageId,
-  entries,
-  streaming,
-  answeredHere,
-}: {
-  messageId: string;
-  entries: readonly Entry[];
-  streaming: boolean;
-  answeredHere: Set<string>;
-}) {
+function WorkTimeline({ entries }: { entries: readonly Entry[] }) {
   return (
     <ol
       aria-label="Steps"
@@ -265,38 +199,11 @@ function WorkTimeline({
               <ReasoningText text={entry.text} />
             </li>
           );
-        if (entry.type === 'search')
-          return (
-            <li key={entry.key} className="relative min-w-0" data-work-entry="search">
-              <TimelineDot />
-              <SearchStep grounding={entry.grounding} />
-            </li>
-          );
-        if (entry.type === 'sources')
-          return (
-            <li key={entry.key} className="relative min-w-0" data-work-entry="sources">
-              <TimelineDot />
-              <SourcesStep sources={entry.sources} />
-            </li>
-          );
-        const step = summarizeToolPart(entry.part);
+        if (entry.type !== 'tool') return null;
         return (
           <li key={entry.key} className="relative min-w-0" data-work-entry="tool">
             <TimelineDot />
-            {isArtifactStep(step.toolId) ? (
-              <ArtifactStepRow
-                messageId={messageId}
-                part={entry.part}
-                step={step}
-                streaming={streaming}
-              />
-            ) : (
-              <ToolStepRow
-                part={entry.part}
-                step={step}
-                focusOnMount={answeredHere.has(step.toolCallId)}
-              />
-            )}
+            <ToolStepRow part={entry.part} step={agentToolStep(entry.part)} />
           </li>
         );
       })}

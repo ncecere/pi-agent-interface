@@ -4,7 +4,6 @@ import { act, createRef, type RefObject } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageList } from '../../src/components/chat/message-list';
-import type { HistoryControls } from '../../src/hooks/use-history-pages';
 import { WINDOW_THRESHOLD } from '../../src/hooks/use-windowed-rows';
 
 vi.mock('../../src/components/chat/markdown', () => ({
@@ -99,12 +98,7 @@ afterEach(async () => {
   HTMLElement.prototype.getBoundingClientRect = original;
 });
 
-function Transcript(props: {
-  messages: UIMessage[];
-  streaming?: boolean;
-  anchorId?: string;
-  history?: HistoryControls;
-}) {
+function Transcript(props: { messages: UIMessage[]; streaming?: boolean }) {
   return (
     <div
       ref={(element) => {
@@ -126,11 +120,10 @@ function Transcript(props: {
     >
       <MessageList
         messages={props.messages}
-        streaming={props.streaming ?? false}
+        liveReplyId={props.streaming ? (props.messages.at(-1)?.id ?? null) : null}
+        working={props.streaming ?? false}
         onRetry={() => {}}
         scrollRef={scrollRef}
-        anchorId={props.anchorId}
-        history={props.history}
       />
     </div>
   );
@@ -184,18 +177,6 @@ describe('windowed transcript', () => {
     );
   });
 
-  it('follows the reader and keeps the opened search result rendered', async () => {
-    await render({ messages: range(0, 600), anchorId: 'm10' });
-    expect(rendered()).toContain('m10');
-    await scrollTo(300 * ROW);
-    // Estimated heights place row ~250 there; whatever it is, it is rendered.
-    const top = Number(inSight()?.slice(1));
-    expect(top).toBeGreaterThan(200);
-    const shown = rendered();
-    expect(shown).toContain('m10');
-    expect(shown).not.toContain('m599');
-  });
-
   it('keeps the message in sight where it was when an earlier page arrives', async () => {
     const latest = range(100, 220);
     await render({ messages: latest });
@@ -227,61 +208,5 @@ describe('windowed transcript', () => {
     expect(Number(inSight()?.slice(1))).toBeGreaterThan(200);
     expect(rendered()).toContain('m12');
     expect(rendered()).not.toContain('m40');
-  });
-});
-
-describe('earlier messages', () => {
-  const controls = (overrides: Partial<HistoryControls> = {}): HistoryControls => ({
-    hasOlder: true,
-    gapAfter: null,
-    loading: null,
-    error: null,
-    loadOlder: vi.fn(),
-    loadGap: vi.fn(),
-    announcement: '',
-    ...overrides,
-  });
-  const button = (name: string) =>
-    [...container.querySelectorAll('button')].find((candidate) => candidate.textContent === name);
-
-  it('offers a button that loads them, then marks the start and keeps focus there', async () => {
-    const history = controls();
-    await render({ messages: range(0, 4), history });
-    const load = button('Load earlier messages')!;
-    await act(async () => load.focus());
-    await act(async () => load.click());
-    expect(history.loadOlder).toHaveBeenCalledOnce();
-
-    await render({ messages: range(0, 4), history: controls({ loading: 'older' }) });
-    expect(button('Loading earlier messages…')?.getAttribute('aria-disabled')).toBe('true');
-    expect(container.querySelector('[data-message-rows]')?.getAttribute('aria-busy')).toBe('true');
-
-    const announcement =
-      'Loaded 4 messages earlier in the conversation. This is the start of the conversation.';
-    await render({ messages: range(0, 4), history: controls({ hasOlder: false, announcement }) });
-    const start = [...container.querySelectorAll('p')].find(
-      (paragraph) => paragraph.textContent === 'This is the start of the conversation.',
-    );
-    expect(document.activeElement).toBe(start);
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(announcement);
-  });
-
-  it('shows nothing for a conversation that is all loaded', async () => {
-    await render({ messages: range(0, 4), history: controls({ hasOlder: false }) });
-    expect(container.textContent).not.toContain('earlier messages');
-    expect(container.textContent).not.toContain('start of the conversation');
-  });
-
-  it('shows the gap after an island with a button that continues it', async () => {
-    const history = controls({ gapAfter: 2 });
-    await render({ messages: range(0, 6), history });
-    const gap = container.querySelector('[data-history-gap]')!;
-    const rows = [...container.querySelectorAll('[data-row-key]')].map(
-      (row) => (row as HTMLElement).dataset.rowKey,
-    );
-    expect(rows).toEqual(['m0', 'm1', 'history-gap', 'm2', 'm3', 'm4', 'm5']);
-    expect(gap.textContent).toContain('Some messages here are not loaded yet.');
-    await act(async () => button('Load more messages')!.click());
-    expect(history.loadGap).toHaveBeenCalledWith('down');
   });
 });

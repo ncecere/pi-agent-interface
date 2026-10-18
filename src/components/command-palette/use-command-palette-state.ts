@@ -1,28 +1,11 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { MessageSquareText, Plus } from 'lucide-react';
-import { createElement, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { SearchResultContent } from '~/components/layout/thread-search-results';
-import {
-  SEARCH_DEBOUNCE_MS,
-  searchResultsAnnouncement,
-  searchResultTarget,
-  useThreadSearch,
-} from '~/hooks/use-thread-search';
-import { useCreateThread } from '~/hooks/use-threads';
-import { stripHighlights } from '~/lib/search-highlight';
+import { Bot, Plus } from 'lucide-react';
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { writeHandover } from '~/hooks/use-agent-thread';
+import { chattable, newThreadId, noteNewThread, useAgents } from '~/hooks/use-agents';
 import type { CommandPaletteProps, PaletteGroup, PaletteItem } from './types';
 import { usePaletteActions } from './use-palette-actions';
-
-const PENDING_PROMPT_KEY = 'oci.pendingPrompt';
-const PENDING_THREAD_KEY = 'oci.pendingThreadId';
-/** Left by an earlier handover from the home page; they would apply to this one. */
-const OTHER_PENDING_KEYS = [
-  'oci.pendingAttachments',
-  'oci.pendingEffort',
-  'oci.pendingModel',
-  'oci.pendingWebSearch',
-  'oci.pendingComposerFocus',
-];
 
 function matches(item: PaletteItem, query: string) {
   if (!query) return true;
@@ -36,94 +19,74 @@ export function useCommandPaletteState({
   onSidebarOpenChange,
 }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const createThread = useCreateThread();
+  const queryClient = useQueryClient();
+  const { data } = useAgents();
+  const agents = useMemo(() => chattable(data), [data]);
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const keepFocusOnClose = useRef(false);
-  /** One conversation per choice, however often Enter arrives before the palette closes. */
-  const startingChat = useRef(false);
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const normalizedDebouncedQuery = debouncedQuery.trim();
-  const searchIsSettled = query.trim() === normalizedDebouncedQuery;
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_DEBOUNCE_MS);
-    return () => window.clearTimeout(timeout);
-  }, [query]);
 
   useEffect(() => {
     if (!open) {
       setQuery('');
-      setDebouncedQuery('');
       setSelectedIndex(0);
     }
   }, [open]);
-
-  // Titles and message text, best match first; a result opens at its match.
-  const {
-    data: threads = [],
-    isFetching: isSearchingThreads,
-    isError: threadSearchFailed,
-    isPlaceholderData: threadsAreStale,
-  } = useThreadSearch(normalizedDebouncedQuery);
 
   const actionGroups = usePaletteActions({ sidebarOpen, onSidebarOpenChange });
 
   const groups = useMemo<PaletteGroup[]>(() => {
     const nextGroups: PaletteGroup[] = [];
 
-    // Results for an earlier query are never offered, so Enter cannot open a stale match.
-    if (normalizedQuery && searchIsSettled && !threadsAreStale && threads.length > 0) {
-      nextGroups.push({
-        id: 'threads',
-        label: 'Conversations',
-        items: threads.map((result) => ({
-          id: `thread-${result.thread.id}`,
-          label: stripHighlights(result.titleHighlight) || result.thread.title,
-          keywords: 'thread conversation',
-          icon: MessageSquareText,
-          content: createElement(SearchResultContent, { result }),
-          keepFocusOnClose: result.matches.length > 0,
-          onSelect: () => navigate(searchResultTarget(result)),
-        })),
-      });
-    }
+    const agentItems: PaletteItem[] = agents
+      .map((agent) => ({
+        id: `agent-${agent.id}`,
+        label: `New chat with ${agent.name}`,
+        keywords: `agent ${agent.name} ${agent.description} ${agent.teamName} ${agent.templateName}`,
+        icon: Bot,
+        keepFocusOnClose: true,
+        onSelect: () => navigate({ to: '/', search: { agent: agent.id } }),
+      }))
+      .filter((item) => matches(item, normalizedQuery));
+    if (agentItems.length) nextGroups.push({ id: 'agents', label: 'Agents', items: agentItems });
 
     for (const group of actionGroups) {
       const items = group.items.filter((item) => matches(item, normalizedQuery));
       if (items.length > 0) nextGroups.push({ ...group, items });
     }
 
-    if (query.trim()) {
-      const prompt = query.trim();
+    const prompt = query.trim();
+    // The query as a first message, to the agent last used (or the first).
+    const lastId = localStorage.getItem('pai.lastAgent');
+    const target = agents.find((agent) => agent.id === lastId) ?? agents[0];
+    if (prompt && target) {
       nextGroups.push({
         id: 'query-action',
         label: 'Actions',
         items: [
           {
-            id: 'new-chat-with-query',
-            label: `New chat with query: “${prompt}”`,
+            id: 'ask-agent',
+            label: `Ask ${target.name}: \u201c${prompt}\u201d`,
             keywords: prompt,
             icon: Plus,
+            keepFocusOnClose: true,
             onSelect: async () => {
-              // isPending is only as fresh as the last render; the ref is not.
-              if (startingChat.current || createThread.isPending) return;
-              startingChat.current = true;
-              try {
-                const { thread } = await createThread.mutateAsync(undefined);
-                // The conversation sends the prompt only when it is addressed to it
-                // (v0.10.2; before, the prompt stayed unsent in an empty "New Chat").
-                sessionStorage.removeItem(PENDING_THREAD_KEY);
-                for (const key of OTHER_PENDING_KEYS) sessionStorage.removeItem(key);
-                sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
-                sessionStorage.setItem(PENDING_THREAD_KEY, thread.id);
-                await navigate({ to: '/chat/$threadId', params: { threadId: thread.id } });
-              } finally {
-                startingChat.current = false;
-              }
+              const threadId = newThreadId();
+              writeHandover({
+                agentId: target.id,
+                threadId,
+                text: prompt,
+                requestId: crypto.randomUUID(),
+                focus: true,
+              });
+              noteNewThread(queryClient, target.id, threadId, prompt);
+              await navigate({
+                to: '/agents/$agentId/threads/$threadId',
+                params: { agentId: target.id, threadId },
+              });
             },
           },
         ],
@@ -131,16 +94,7 @@ export function useCommandPaletteState({
     }
 
     return nextGroups;
-  }, [
-    actionGroups,
-    createThread,
-    navigate,
-    normalizedQuery,
-    query,
-    searchIsSettled,
-    threads,
-    threadsAreStale,
-  ]);
+  }, [actionGroups, agents, navigate, normalizedQuery, query, queryClient]);
 
   const items = groups.flatMap((group) => group.items);
   const itemIds = items.map((item) => item.id).join('|');
@@ -206,14 +160,8 @@ export function useCommandPaletteState({
     }
   }
 
-  const showThreadProgress = normalizedQuery.length > 0 && (!searchIsSettled || isSearchingThreads);
-  const threadAnnouncement = !normalizedQuery
-    ? ''
-    : threadSearchFailed
-      ? 'Conversation search failed.'
-      : showThreadProgress
-        ? ''
-        : searchResultsAnnouncement(threads.length);
+  const showThreadProgress = false;
+  const threadAnnouncement = '';
 
   /** Read once by the dialog's close handler, then reset. */
   function consumeKeepFocus() {

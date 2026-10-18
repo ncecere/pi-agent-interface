@@ -1,7 +1,7 @@
 import { Link, useRouterState } from '@tanstack/react-router';
 import { Button } from '~/components/ui/button';
 import { UnavailableState } from '~/components/ui/unavailable-state';
-import { useCurrentUser } from '~/hooks/use-current-user';
+import { useMe } from '~/hooks/use-session';
 
 /**
  * An address with no page, in the layout every unavailable page uses (#131).
@@ -14,7 +14,7 @@ import { useCurrentUser } from '~/hooks/use-current-user';
 export function NotFoundPage({ admin = false }: { admin?: boolean }) {
   const path = useRouterState({ select: (state) => state.location.pathname });
   // Signed in inside the admin and the chat shell; /me answers null when not.
-  const { data: me } = useCurrentUser();
+  const { data: me } = useMe();
   const signedOut = !admin && me === null;
   // The router marks a link active, with aria-current="page", when the address
   // starts with its target: /admin for every admin address, / for every
@@ -25,11 +25,7 @@ export function NotFoundPage({ admin = false }: { admin?: boolean }) {
       title="Page not found"
       actions={
         <Button asChild>
-          {admin ? (
-            <Link to="/admin" activeOptions={exact}>
-              Go to Overview
-            </Link>
-          ) : signedOut ? (
+          {signedOut ? (
             <Link to="/auth/login" activeOptions={exact}>
               Sign in
             </Link>

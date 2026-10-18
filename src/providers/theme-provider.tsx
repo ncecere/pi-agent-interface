@@ -1,4 +1,3 @@
-import { COLOR_THEMES, type ColorTheme, type ThemeMode } from '@oci/shared';
 import {
   createContext,
   type ReactNode,
@@ -8,6 +7,7 @@ import {
   useMemo,
   useState,
 } from 'react';
+import { COLOR_THEMES, type ColorTheme, type ThemeMode } from '~/shared';
 
 const THEME_STORAGE_KEY = 'oci.theme';
 const CODE_WRAP_STORAGE_KEY = 'oci.codeWrap';

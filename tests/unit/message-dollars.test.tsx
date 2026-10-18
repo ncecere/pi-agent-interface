@@ -30,11 +30,7 @@ const message = (role: 'user' | 'assistant', text: string): UIMessage => ({
   parts: [{ type: 'text', text }],
 });
 async function show(row: UIMessage) {
-  await act(async () =>
-    root.render(
-      <MessageRow message={row} streaming={false} editing={false} onEditingChange={() => {}} />,
-    ),
-  );
+  await act(async () => root.render(<MessageRow message={row} streaming={false} />));
   await vi.waitFor(() => expect(container.querySelector('p')).not.toBeNull(), { timeout: 5_000 });
 }
 

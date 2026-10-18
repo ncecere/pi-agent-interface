@@ -1,6 +1,6 @@
 import { type AnyRouter, useRouterState } from '@tanstack/react-router';
 import { useEffect } from 'react';
-import { useAuthStatus } from '~/hooks/use-auth-status';
+import { useAuthConfig } from '~/hooks/use-session';
 import {
   applyBrandIcons,
   brandIconHref,
@@ -18,11 +18,11 @@ import {
  * index.html serves it.
  */
 export function DocumentBranding({ router }: { router: AnyRouter }) {
-  const { data } = useAuthStatus();
+  const { data } = useAuthConfig();
   const pathname = useRouterState({ router, select: (state) => state.location.pathname });
   const override = usePageTitleOverride();
-  const appName = data?.branding?.appName;
-  const icon = brandIconHref(data?.branding?.logoUrl);
+  const appName = data?.instance.name;
+  const icon = brandIconHref(data?.instance.logoUrl);
 
   useEffect(() => {
     document.title = documentTitle(override ?? pageTitleFor(pathname), appName);

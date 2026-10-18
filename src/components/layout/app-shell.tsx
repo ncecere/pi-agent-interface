@@ -1,9 +1,6 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { UsageWarning } from '~/components/chat/usage-warning';
 import { CommandPalette } from '~/components/command-palette/command-palette';
-import { BroadcastBanner, useBroadcastsSettled } from '~/components/layout/broadcast-banner';
-import { ReadOnlyBanner } from '~/components/layout/read-only-banner';
 import { Sidebar } from '~/components/layout/sidebar';
 import { SkipLink } from '~/components/layout/skip-link';
 import { TopBar } from '~/components/layout/top-bar';
@@ -11,18 +8,11 @@ import { useCommandPalette } from '~/hooks/use-command-palette';
 import { useGlobalShortcuts } from '~/hooks/use-global-shortcuts';
 import { focusComposerSoon, focusWhenReady } from '~/lib/focus-after-navigation';
 import { cn } from '~/lib/utils';
-import { TemporaryChatProvider, useTemporaryChat } from '~/providers/temporary-chat-provider';
 
-/**
- * The global shortcuts, mounted inside the temporary chat provider because a
- * new chat started from the keyboard leaves temporary mode, like the button.
- */
 function GlobalShortcuts({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const navigate = useNavigate();
-  const { setTemporary } = useTemporaryChat();
   useGlobalShortcuts({
     onNewChat: () => {
-      setTemporary(false);
       // Typing straight after the shortcut goes into the new chat (#251).
       void navigate({ to: '/' }).then(focusComposerSoon);
     },
@@ -46,9 +36,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const previousPathname = useRef(pathname);
   const commandPalette = useCommandPalette();
-  // The page waits for the first word on announcements, so a banner does not
-  // push it down after it has painted (#167).
-  const bannersSettled = useBroadcastsSettled();
 
   useEffect(() => {
     const query = window.matchMedia(DOCKED_SIDEBAR);
@@ -105,7 +92,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <TemporaryChatProvider>
+    <>
       <GlobalShortcuts
         onToggleSidebar={() => (sidebarOpen ? closeSidebar() : setSidebarOpen(true))}
       />
@@ -135,29 +122,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div
               data-banners
               className={cn('shrink-0', sidebarOpen ? 'pt-[3.25rem]' : 'pt-[4.25rem]')}
-            >
-              <ReadOnlyBanner />
-              <BroadcastBanner />
-            </div>
+            />
             <div
               id="main-content"
               // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region needs keyboard access per WCAG 2.1.1, and this doubles as the skip-link target
               tabIndex={0}
-              aria-busy={!bannersSettled}
-              className={cn(
-                'scrollbar-thin min-h-0 flex-1 overflow-y-auto',
-                !bannersSettled && 'invisible',
-              )}
+              className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
             >
               {children}
             </div>
           </main>
         </div>
-
-        {/* Mounted on the shell rather than a page: the shell survives
-            navigation between chats, so a warning is announced once instead of
-            again on every route change. */}
-        <UsageWarning />
 
         <CommandPalette
           open={commandPalette.open}
@@ -166,6 +141,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           onSidebarOpenChange={setSidebarOpen}
         />
       </div>
-    </TemporaryChatProvider>
+    </>
   );
 }

@@ -1,10 +1,9 @@
-import { Link } from '@tanstack/react-router';
 import { Monitor, Moon, Settings2, Sun } from 'lucide-react';
 import { Button } from '~/components/ui/button';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -20,7 +19,7 @@ const THEME_OPTIONS = [
 ] as const;
 
 export function ThemeMenu() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, codeWrap, setCodeWrap, invertSend, setInvertSend } = useTheme();
 
   return (
     <DropdownMenu>
@@ -46,9 +45,20 @@ export function ThemeMenu() {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem asChild>
-          <Link to="/settings">All settings</Link>
-        </DropdownMenuItem>
+        <DropdownMenuCheckboxItem
+          checked={codeWrap}
+          onCheckedChange={(checked) => setCodeWrap(checked === true)}
+          onSelect={(event) => event.preventDefault()}
+        >
+          Wrap long code lines
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={invertSend}
+          onCheckedChange={(checked) => setInvertSend(checked === true)}
+          onSelect={(event) => event.preventDefault()}
+        >
+          Enter adds a new line
+        </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
