@@ -230,6 +230,24 @@ export class PgStore implements Store {
     }));
   }
 
+  async prefs(personId: string) {
+    const rows = await this.sql<{ key: string; value: unknown }[]>`
+      select key, value from user_prefs where person_id = ${personId}`;
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  }
+
+  async setPref(personId: string, key: string, value: unknown) {
+    try {
+      await this.sql`
+        insert into user_prefs (person_id, key, value) values (${personId}, ${key}, ${this.sql.json(value as never)})
+        on conflict (person_id, key) do update set value = excluded.value, updated_at = now()`;
+    } catch (error) {
+      if ((error as { code?: string }).code === '23503')
+        throw new StoreError('not_found', 'No such person');
+      throw error;
+    }
+  }
+
   async close() {
     await this.sql.end({ timeout: 5 });
   }

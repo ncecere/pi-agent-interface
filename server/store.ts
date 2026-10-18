@@ -68,8 +68,17 @@ export interface Store {
   /** Lockout recovery: makes the person with this email an active administrator. */
   promote(email: string): Promise<Person | null>;
   audit(limit: number): Promise<AuditEntry[]>;
+  /** A person's saved preferences, by key (appearance, inbox…). */
+  prefs(personId: string): Promise<Record<string, unknown>>;
+  setPref(personId: string, key: string, value: unknown): Promise<void>;
   close(): Promise<void>;
 }
+
+/** The preferences a person may save, and how large each may be (bytes of JSON). */
+export const PREF_LIMITS: Record<string, number> = {
+  appearance: 4 * 1024,
+  inbox: 512 * 1024,
+};
 
 const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>
   Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
@@ -174,6 +183,20 @@ export class MemoryStore implements Store {
 
   async audit(limit: number) {
     return [...this.log].reverse().slice(0, limit);
+  }
+
+  private readonly saved = new Map<string, Record<string, unknown>>();
+
+  async prefs(personId: string) {
+    return structuredClone(this.saved.get(personId) ?? {});
+  }
+
+  async setPref(personId: string, key: string, value: unknown) {
+    if (!this.rows.has(personId)) throw new StoreError('not_found', 'No such person');
+    this.saved.set(personId, {
+      ...(this.saved.get(personId) ?? {}),
+      [key]: structuredClone(value),
+    });
   }
 
   async close() {}

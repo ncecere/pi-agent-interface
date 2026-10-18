@@ -1,4 +1,5 @@
-import { LogOut } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
+import { LogOut, Settings } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,6 +61,12 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
           {user.email || name}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/settings">
+            <Settings />
+            Settings
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => signOut.mutate()}>
           <LogOut />
           Sign out

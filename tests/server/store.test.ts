@@ -102,6 +102,22 @@ function contract(name: string, make: () => Promise<Store>) {
       expect(await store.promote('nobody@example.test')).toBeNull();
     });
 
+    it('saves preferences per person, replacing a key as a whole', async () => {
+      await store.signIn(tim, null);
+      await store.signIn(bob, null);
+      await store.setPref('tim', 'appearance', { theme: 'light', codeWrap: true });
+      await store.setPref('tim', 'appearance', { theme: 'dark' });
+      await store.setPref('tim', 'inbox', { threads: { 'a/1': { pinnedAt: 5 } } });
+      expect(await store.prefs('tim')).toEqual({
+        appearance: { theme: 'dark' },
+        inbox: { threads: { 'a/1': { pinnedAt: 5 } } },
+      });
+      expect(await store.prefs('bob')).toEqual({});
+      await expect(store.setPref('nobody', 'appearance', {})).rejects.toMatchObject({
+        code: 'not_found',
+      });
+    });
+
     it('keeps an audit log of who changed what, newest first', async () => {
       await store.signIn(tim, 'tim@example.test');
       await store.signIn(bob, null);

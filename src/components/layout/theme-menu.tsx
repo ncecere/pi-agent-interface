@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 import { Monitor, Moon, Settings2, Sun } from 'lucide-react';
 import { AVATAR_STYLES, type AvatarStyle } from '~/components/agent/avatar/avatar-art';
 import { setAvatarStyle, useAvatarStyle } from '~/components/agent/avatar/avatar-prefs';
@@ -6,6 +7,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -76,6 +78,11 @@ export function ThemeMenu() {
         >
           Enter adds a new line
         </DropdownMenuCheckboxItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/settings/customization">All settings</Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronsLeftRight, MoonStar, Palette, Plus } from 'lucide-react';
+import { ChevronsLeftRight, MoonStar, Palette, Plus, Settings } from 'lucide-react';
 import { useMemo } from 'react';
 import { focusComposerSoon, touchOnly } from '~/lib/focus-after-navigation';
 import { shortcutKeys } from '~/lib/keyboard-shortcuts';
@@ -37,6 +37,13 @@ export function usePaletteActions({
         id: 'settings',
         label: 'Settings',
         items: [
+          {
+            id: 'settings',
+            label: 'Open settings',
+            keywords: 'account preferences customize appearance avatar conversations archived',
+            icon: Settings,
+            onSelect: () => navigate({ to: '/settings' }),
+          },
           {
             id: 'toggle-theme',
             label: `Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`,

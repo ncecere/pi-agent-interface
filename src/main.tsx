@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
 import { DocumentBranding } from '~/components/brand/document-branding';
+import { AppearanceSync } from '~/lib/prefs';
 import { ThemeProvider } from '~/providers/theme-provider';
 import { router } from '~/router';
 import './styles/global.css';
@@ -22,6 +23,7 @@ createRoot(container).render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <DocumentBranding router={router} />
+        <AppearanceSync />
         <RouterProvider router={router} />
         <Toaster theme="dark" position="top-right" />
       </ThemeProvider>

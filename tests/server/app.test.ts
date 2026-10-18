@@ -388,3 +388,47 @@ describe('roles', () => {
     });
   });
 });
+
+describe('preferences', () => {
+  it('saves and reads back a person’s own preferences, and only known ones', async () => {
+    const { cookie, csrf } = await signIn('tim');
+    const headers = {
+      Cookie: cookie,
+      'X-CSRF-Token': csrf,
+      Origin: 'http://localhost:5177',
+      'Content-Type': 'application/json',
+    };
+    const put = (key: string, body: string) =>
+      app.request(`/api/me/prefs/${key}`, { method: 'PUT', headers, body });
+    expect((await put('appearance', JSON.stringify({ value: { theme: 'light' } }))).status).toBe(
+      200,
+    );
+    const read = await (await app.request('/api/me/prefs', { headers: { Cookie: cookie } })).json();
+    expect(read.data).toEqual({ appearance: { theme: 'light' } });
+    expect((await put('secrets', JSON.stringify({ value: {} }))).status).toBe(404);
+    expect((await put('appearance', JSON.stringify({ value: 'light' }))).status).toBe(400);
+    expect(
+      (await put('appearance', JSON.stringify({ value: { x: 'y'.repeat(5000) } }))).status,
+    ).toBe(413);
+    // Writes need the CSRF token, as everywhere.
+    const forged = await app.request('/api/me/prefs/appearance', {
+      method: 'PUT',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: {} }),
+    });
+    expect(forged.status).toBe(403);
+  });
+
+  it('keeps people’s preferences apart', async () => {
+    const tim = await signIn('tim');
+    await app.request('/api/me/prefs/appearance', {
+      method: 'PUT',
+      headers: { Cookie: tim.cookie, 'X-CSRF-Token': tim.csrf, Origin: 'http://localhost:5177' },
+      body: JSON.stringify({ value: { theme: 'light' } }),
+    });
+    const bob = await signIn('bob');
+    expect(
+      (await (await app.request('/api/me/prefs', { headers: { Cookie: bob.cookie } })).json()).data,
+    ).toEqual({});
+  });
+});

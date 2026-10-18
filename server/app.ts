@@ -13,7 +13,14 @@ import {
   type User,
   userIdFor,
 } from './session.ts';
-import { type Person, type Role, type Status, type Store, StoreError } from './store.ts';
+import {
+  type Person,
+  PREF_LIMITS,
+  type Role,
+  type Status,
+  type Store,
+  StoreError,
+} from './store.ts';
 
 /** Fixed development accounts (DEV_AUTH, loopback only). */
 export const DEV_ACCOUNTS = [
@@ -255,6 +262,29 @@ export function createApp(config: Config, deps: { store: Store; platform?: Platf
         csrfToken: session.csrf,
       },
     });
+  });
+
+  /** The signed-in person's saved preferences (appearance, inbox…), so they follow them between devices. */
+  app.get('/api/me/prefs', requireSession, async (c) =>
+    c.json({ data: await store.prefs(c.get('person').id) }),
+  );
+
+  app.put('/api/me/prefs/:key', requireSession, async (c) => {
+    const key = c.req.param('key');
+    const limit = PREF_LIMITS[key];
+    if (limit === undefined) return fail(c, 404, 'unknown_pref', 'Unknown preference');
+    const text = await c.req.text();
+    if (text.length > limit + 64) return fail(c, 413, 'too_large', 'Preference too large');
+    let body: { value?: unknown };
+    try {
+      body = JSON.parse(text) as { value?: unknown };
+    } catch {
+      return fail(c, 400, 'invalid_json', 'invalid JSON');
+    }
+    if (typeof body.value !== 'object' || body.value === null || Array.isArray(body.value))
+      return fail(c, 400, 'invalid_value', 'value must be an object');
+    await store.setPref(c.get('person').id, key, body.value);
+    return c.json({ data: { ok: true } });
   });
 
   /** Ends every session of the signed-in person, this one included. */

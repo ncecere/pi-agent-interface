@@ -100,10 +100,53 @@ const threadRoute = createRoute({
   },
 });
 
+/** Settings: a page of its own (no chat sidebar), as in Open Chat Interface. */
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: 'settings',
+  beforeLoad: async ({ location }) => {
+    const session = await loadSession();
+    if (!session) throw redirect({ to: '/sign-in', search: signInSearch(location.href) as never });
+    return { session };
+  },
+  component: lazyRouteComponent(
+    () => import('~/components/settings/settings-layout'),
+    'SettingsLayout',
+  ),
+  pendingComponent: FullPageSpinner,
+});
+
+const settingsPage = <P extends string>(
+  path: P,
+  component: ReturnType<typeof lazyRouteComponent>,
+) => createRoute({ getParentRoute: () => settingsRoute, path, component });
+
+const settingsChildren = [
+  settingsPage(
+    '/settings',
+    lazyRouteComponent(() => import('~/routes/settings/account'), 'SettingsAccountPage'),
+  ),
+  settingsPage(
+    '/settings/customization',
+    lazyRouteComponent(
+      () => import('~/routes/settings/customization'),
+      'SettingsCustomizationPage',
+    ),
+  ),
+  settingsPage(
+    '/settings/conversations',
+    lazyRouteComponent(
+      () => import('~/routes/settings/conversations'),
+      'SettingsConversationsPage',
+    ),
+  ),
+];
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   avatarsRoute,
   authenticatedRoute.addChildren([chatHomeRoute, agentRoute, threadRoute]),
+  settingsRoute.addChildren(settingsChildren),
 ]);
 
 export const router = createRouter({

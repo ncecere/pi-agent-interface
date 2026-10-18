@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Settings** (`/settings`, in Open Chat Interface's layout): Account (profile from sign-in, sign out, sign out
+  everywhere), Customization (light/dark/system, accent, avatar style, Enter behaviour, code wrapping) and
+  Conversations (archived and done, restore or delete, one by one or together). Appearance is saved to the
+  person's account (`/api/me/prefs`), so it follows them between devices.
 - The app has its own Postgres (`DATABASE_URL`), migrated on start: the people who have signed in, their role and
   an audit log. `INITIAL_ADMIN_EMAIL` makes the first administrator; `pnpm admin:promote <email>` recovers from a
   lockout. Administrators can promote and suspend people (`/api/admin/*`); a suspension, or "sign out
