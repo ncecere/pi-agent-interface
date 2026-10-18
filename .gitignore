@@ -28,3 +28,6 @@ _TMP/
 screen_shots/
 dist-server/
 .shots/
+
+# Screenshots dropped in for review
+/image*.png
