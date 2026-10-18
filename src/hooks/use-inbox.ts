@@ -318,3 +318,71 @@ export function useInboxTracker() {
     };
   }, []);
 }
+
+// ── Following the person between devices ───────────────────────────────────────────────────
+
+const PULL_EVERY_MS = 60_000;
+const PUSH_AFTER_MS = 1_500;
+
+function parseRemoteInbox(value: unknown): Record<string, ThreadMeta> {
+  const threads = (value as { v?: number; threads?: unknown } | null)?.threads;
+  return threads && typeof threads === 'object' ? (threads as Record<string, ThreadMeta>) : {};
+}
+
+/**
+ * Keeps the inbox (pinned, snoozed, done, read…) in the person's account, so
+ * it follows them between devices. Pulls when the app opens, when the tab is
+ * looked at again and every minute; saves shortly after each change. Each
+ * conversation's later change wins. Mounted once, in the app shell.
+ */
+export function useInboxSync() {
+  const store = useInboxStore();
+  const metas = useInboxMetas();
+  const pulled = useRef(false);
+  const lastPushed = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!store) return;
+    let stopped = false;
+    const pull = async () => {
+      try {
+        const prefs = await api.get<Record<string, unknown>>('/api/me/prefs');
+        if (stopped) return;
+        const remote = parseRemoteInbox(prefs.inbox);
+        const localNewer = store.merge(remote);
+        // Nothing newer here: no need to send it back.
+        if (!localNewer) lastPushed.current = JSON.stringify(store.exportAll());
+        pulled.current = true;
+      } catch {
+        // Offline or signed out: the browser's copy carries on, and the next pull catches up.
+      }
+    };
+    void pull();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void pull();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = setInterval(() => void pull(), PULL_EVERY_MS);
+    return () => {
+      stopped = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(timer);
+    };
+  }, [store]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `metas` is the trigger: every change is saved
+  useEffect(() => {
+    if (!store || !pulled.current) return;
+    const body = JSON.stringify(store.exportAll());
+    if (body === lastPushed.current) return;
+    const timer = setTimeout(() => {
+      lastPushed.current = body;
+      void api
+        .put('/api/me/prefs/inbox', { value: { v: 1, threads: JSON.parse(body) } })
+        .catch(() => {
+          lastPushed.current = null; // try again with the next change or pull
+        });
+    }, PUSH_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [metas, store]);
+}

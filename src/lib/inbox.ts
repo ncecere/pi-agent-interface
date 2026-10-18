@@ -34,6 +34,8 @@ export interface ThreadMeta {
    * not have started.
    */
   awaitingUsers?: number;
+  /** When this browser last changed it: between devices, the later change wins (see InboxStore.merge). */
+  _at?: number;
 }
 
 export type Bucket = 'pinned' | 'working' | 'inbox' | 'snoozed' | 'done' | 'archived';
@@ -328,5 +330,5 @@ export function replyFinished(
 
 /** A meta with every field left undefined is not worth keeping. */
 export function isBlank(meta: ThreadMeta): boolean {
-  return Object.values(meta).every((value) => value === undefined);
+  return Object.entries(meta).every(([key, value]) => key === '_at' || value === undefined);
 }

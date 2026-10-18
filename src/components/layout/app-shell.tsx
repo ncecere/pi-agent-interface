@@ -6,7 +6,7 @@ import { SkipLink } from '~/components/layout/skip-link';
 import { TopBar } from '~/components/layout/top-bar';
 import { useCommandPalette } from '~/hooks/use-command-palette';
 import { useGlobalShortcuts } from '~/hooks/use-global-shortcuts';
-import { useInboxTracker } from '~/hooks/use-inbox';
+import { useInboxSync, useInboxTracker } from '~/hooks/use-inbox';
 import { focusComposerSoon, focusWhenReady } from '~/lib/focus-after-navigation';
 import { cn } from '~/lib/utils';
 
@@ -32,6 +32,8 @@ const DRAWER = 'aside[aria-label="Conversation sidebar"]';
 export function AppShell({ children }: { children: ReactNode }) {
   // Replies still being written in conversations that are not open are followed here.
   useInboxTracker();
+  // Pinned, snoozed, done and read follow the person to every device.
+  useInboxSync();
   // A drawer below 1024px, as on phones: docked at 768 it left the chat 512px,
   // wrapping the model name and squeezing Send (#109).
   const [mobile, setMobile] = useState(() => !window.matchMedia(DOCKED_SIDEBAR).matches);

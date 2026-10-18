@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The inbox follows you between devices**: pinned, snoozed, done, archived and read state is saved to your
+  account. Each conversation's latest change wins, and removals (an unpin, say) carry over too.
+- **The sidebar** is resizable (drag its edge, or use the arrow keys on it; double-click resets) and shows
+  conversations as two-line cards with a coloured status and a live timer while the agent works, in the
+  proportions of t3code's sidebar.
+- Fixed: on a shared browser, the next person to sign in inherited the previous person's theme, accent and
+  avatar style.
+- Fixed: leaving a conversation while its agent was working showed the agent as done.
 - **Admin dashboard** (`/admin`, administrators only, in Open Chat Interface's layout): Overview (people, activity,
   recent changes), People (search, make administrator or member, suspend or restore), Branding (name, logo,
   default accent and appearance, shown on every page and the sign-in page) and the Audit log.

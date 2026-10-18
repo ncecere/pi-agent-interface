@@ -26,7 +26,7 @@ describe('InboxStore', () => {
   it('saves changes and reads them back in a new session', () => {
     const first = new InboxStore('tim', disk);
     first.set('a/1', { pinnedAt: 5 });
-    expect(new InboxStore('tim', disk).get('a/1')).toEqual({ pinnedAt: 5 });
+    expect(new InboxStore('tim', disk).get('a/1')).toMatchObject({ pinnedAt: 5 });
   });
 
   it('keeps people who share a browser apart', () => {
@@ -38,10 +38,15 @@ describe('InboxStore', () => {
     const store = new InboxStore('tim', disk);
     store.set('a/1', { pinnedAt: 5 });
     store.set('a/1', { pinnedAt: undefined });
-    expect(store.get('a/1')).toBeUndefined();
+    // A removal is kept as an empty, stamped entry, so it reaches the person's other devices.
+    expect(store.get('a/1')).toEqual({ _at: expect.any(Number) });
     store.set('a/2', { pinnedAt: 5 });
     store.set('a/2', undefined);
-    expect(store.getSnapshot()).toEqual({});
+    expect(
+      Object.values(store.getSnapshot()).every((meta) => Object.keys(meta).join() === '_at'),
+    ).toBe(true);
+    store.set('a/3', undefined); // nothing to remove: nothing recorded
+    expect(store.get('a/3')).toBeUndefined();
   });
 
   it('notifies only when something changed, with a new snapshot each time', () => {
@@ -66,7 +71,7 @@ describe('InboxStore', () => {
   it('works when storage is unavailable, for the life of the page', () => {
     const store = new InboxStore('tim', null);
     store.set('a/1', { pinnedAt: 5 });
-    expect(store.get('a/1')).toEqual({ pinnedAt: 5 });
+    expect(store.get('a/1')).toMatchObject({ pinnedAt: 5 });
   });
 
   it('clears everything of a person', () => {
@@ -96,6 +101,38 @@ describe('InboxStore', () => {
       store.prune('a', new Set(), NOW, GRACE);
       expect(store.get('a/new')).toBeDefined();
     });
+  });
+});
+
+describe('between devices', () => {
+  it('takes the later change of each conversation, and says when it holds newer ones', () => {
+    const laptop = new InboxStore('tim', memory());
+    const phone = new InboxStore('tim', memory());
+    laptop.set('a/1', { pinnedAt: 1 });
+    phone.set('a/2', { settledAt: 2 });
+    expect(phone.merge(laptop.exportAll())).toBe(true); // the phone has a/2, the laptop does not
+    expect(laptop.merge(phone.exportAll())).toBe(false);
+    expect(laptop.get('a/2')).toMatchObject({ settledAt: 2 });
+    expect(phone.get('a/1')).toMatchObject({ pinnedAt: 1 });
+  });
+
+  it('carries a removal over, rather than bringing the old state back', async () => {
+    const laptop = new InboxStore('tim', memory());
+    const phone = new InboxStore('tim', memory());
+    laptop.set('a/1', { pinnedAt: 1 });
+    phone.merge(laptop.exportAll());
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    phone.set('a/1', { pinnedAt: undefined }); // unpinned on the phone, later
+    laptop.merge(phone.exportAll());
+    expect(laptop.get('a/1')?.pinnedAt).toBeUndefined();
+  });
+
+  it('forgets removals once every device has had a month to learn of them', () => {
+    const store = new InboxStore('tim', memory());
+    store.set('a/1', { pinnedAt: 1 });
+    store.set('a/1', undefined);
+    expect(Object.keys(store.exportAll())).toEqual(['a/1']);
+    expect(Object.keys(store.exportAll(Date.now() + 31 * 24 * 60 * 60 * 1000))).toEqual([]);
   });
 });
 
