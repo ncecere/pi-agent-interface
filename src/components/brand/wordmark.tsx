@@ -1,10 +1,10 @@
-import { TurnsMark } from '~/components/brand/turns-mark';
+import { FaceMark } from '~/components/brand/face-mark';
 import { cn } from '~/lib/utils';
 import { instanceName } from '~/shared';
 
 /**
  * The longest name the compact header shows in full beside the mark; longer
- * names collapse to initials. "Open Chat Interface" (19) fits.
+ * names collapse to initials. "Pi Agent Interface" (18) fits.
  */
 const COMPACT_NAME_MAX = 20;
 
@@ -27,7 +27,7 @@ export function compactLabel(label: string, shortName?: string | null): string {
  *
  * A configured logo replaces the mark and name entirely, since an instance
  * that has uploaded a mark generally wants that rather than its name repeated
- * beside it. Without one, the Open Chat Interface mark ("Turns") sits beside
+ * beside it. Without one, the Pi Agent Interface mark ("Face") sits beside
  * the instance name, which stays live text so it is read, found and
  * translated like any other. In the compact header a short name is used if
  * set, and a long name collapses to initials so branding changes cannot break
@@ -73,7 +73,7 @@ export function Wordmark({
       )}
       title={display === label ? undefined : label}
     >
-      <TurnsMark className={compact ? 'size-6' : 'size-8'} />
+      <FaceMark className={compact ? 'size-6' : 'size-8'} />
       <span className={compact ? 'min-w-0 truncate' : 'min-w-0 [overflow-wrap:anywhere]'}>
         {display}
       </span>

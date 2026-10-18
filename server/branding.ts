@@ -14,7 +14,7 @@ export interface Branding {
   defaultTheme: (typeof THEME_MODES)[number];
 }
 
-export const defaultBranding = (name = 'Pi Agents'): Branding => ({
+export const defaultBranding = (name = 'Pi Agent Interface'): Branding => ({
   name,
   logoUrl: null,
   colorTheme: 'neutral',

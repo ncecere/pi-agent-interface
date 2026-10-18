@@ -727,7 +727,7 @@ describe('branding and overview', () => {
   it('starts from the defaults and shows saved branding to everyone, signed in or not', async () => {
     const before = await (await app.request('/api/auth/config')).json();
     expect(before.data.instance).toMatchObject({
-      name: 'Pi Agents',
+      name: 'Pi Agent Interface',
       logoUrl: null,
       colorTheme: 'neutral',
       defaultTheme: 'dark',

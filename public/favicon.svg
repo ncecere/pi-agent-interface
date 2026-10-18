@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Open Chat Interface">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pi Agent Interface">
 <rect width="64" height="64" rx="14" fill="#171717"/>
-<path d="M32.5 11H44.5A7.5 7.5 0 0 1 52 18.5V29.5H32.5A7.5 7.5 0 0 1 25 22V18.5A7.5 7.5 0 0 1 32.5 11Z" fill="#51a2ff"/>
-<path d="M15.75 40H48.25M15.75 51H34.25" fill="none" stroke="#fafafa" stroke-width="7.5" stroke-linecap="round"/>
+<circle cx="32" cy="32" r="21" fill="#fe9a00"/>
+<rect x="22.5" y="24.5" width="6.5" height="12" rx="3.25" fill="#171717"/>
+<rect x="35" y="24.5" width="6.5" height="12" rx="3.25" fill="#171717"/>
 </svg>
