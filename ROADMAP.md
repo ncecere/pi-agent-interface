@@ -2,22 +2,11 @@
 
 What is not built yet, in the order it is likely to be done. Each item is a GitHub issue with the proposed implementation and what “done” means; the milestones group them. Dates are not promised.
 
-This list is complete as of v0.3.1: if something you need is missing from the app and not here, open an issue.
+This list is complete as of v0.4.0: if something you need is missing from the app and not here, open an issue.
 
 ## Built so far
 
-Agent-only chat with live tool steps, a work inbox with shortcuts and snoozing, reply details (time, model, tokens, step durations), sign-in through your identity provider, connecting each person's own platform account (Connect) or a team service account, provided and personal agents, optional features, an administrator area, and a PostgreSQL store. See the [changelog](CHANGELOG.md) for each release.
-
-## v0.4 Sharing and operating
-
-Make it safe to share and to run for other people. These need no change on the platform.
-
-- [#1](https://github.com/ncecere/pi-agent-interface/issues/1) **Restrict sign-in and grant administrator by identity-provider group**. Today access is limited only at the identity provider (the sign-in provider is bound to one group).
-- [#2](https://github.com/ncecere/pi-agent-interface/issues/2) **Rotate SESSION_SECRET without signing everyone out and disconnecting them**. One `SESSION_SECRET` derives every key (`Sealer`, `server/session.ts`): sessions, OAuth state and the stored platform tokens.
-- [#3](https://github.com/ncecere/pi-agent-interface/issues/3) **Prometheus metrics and example alerts**. The app has `/healthz` and `/readyz` only.
-- [#4](https://github.com/ncecere/pi-agent-interface/issues/4) **Rehearse and document restoring the database from backup**. The reference deployment archives WAL and takes a daily base backup (CloudNative-PG to S3-compatible storage).
-- [#5](https://github.com/ncecere/pi-agent-interface/issues/5) **Browser end-to-end tests in CI**. Unit and server tests run in CI (321+), but nothing drives the real interface.
-- [#6](https://github.com/ncecere/pi-agent-interface/issues/6) **Accessibility audit**. Keyboard shortcuts and labels exist, but the app has never been audited for keyboard-only use, screen readers, contrast or reduced motion (the avatars animate).
+Agent-only chat with live tool steps, a work inbox with shortcuts and snoozing, reply details (time, model, tokens, step durations), sign-in through your identity provider, connecting each person's own platform account (Connect) or a team service account, provided and personal agents, optional features, an administrator area, and a PostgreSQL store. Since v0.4.0 it is also ready to share: access and administrators by identity-provider group, rotating the session secret without signing anyone out, Prometheus metrics, a rehearsed database restore, and browser and accessibility tests in CI. See the [changelog](CHANGELOG.md) for each release.
 
 ## v0.5 Usage and history
 

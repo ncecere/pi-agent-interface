@@ -2,20 +2,28 @@
 
 ## Unreleased
 
-- **Restore rehearsed and documented.** The README now says what the database holds, what a restore needs (keep `SESSION_SECRET`) and does, and how to rehearse one on CloudNativePG. Rehearsed on the reference deployment on 2026-10-19: latest state and a point in time, each in about a minute, every table matching, tokens still opening.
-- **Prometheus metrics** (optional, `METRICS_ENABLED=true`): requests by route and status with latency, calls to the platform by outcome, platform-token refreshes, sign-ins by outcome, open streams, database reachability, and the usual process figures, on a port of their own (`METRICS_PORT`, default 9464) so exposing the app doesn't expose them. `deploy/kubernetes/components/metrics` adds a Service, ServiceMonitor, NetworkPolicy and eight example alerts (checked with promtool).
-- **Accessibility audit.** Automated checks (axe) now run in CI on the main pages in both themes and every accent. Fixed what they found: the Failed and Working statuses and the muted text on the open conversation's row were too faint to read (the light theme's red and blue are darker, the dark theme's muted text a little lighter); the Default model selector in Admin → Agents had no name for screen readers; the user-menu button on a phone didn't start its name with the initials it shows; and the emerald accent's dark-theme buttons (white on 3.3:1) are now darker. Keyboard focus and reduced motion are tested too. What isn't checked is listed in the README.
-- **Browser tests in CI** (`pnpm e2e`): sign-in, chat with a streamed reply, the inbox (including the status-over-actions layout fixed in 0.3.1, on desktop and touch), administration access and the Connect flow, against a fake platform. Not part of the shipped image.
-- **Rotating `SESSION_SECRET`.** Put the old secret in `SESSION_SECRET_PREVIOUS` and the new one in `SESSION_SECRET`:
-  sessions keep working (and are sealed again with the new secret as they are used), and on start the app seals every
-  stored platform connection with the new secret, so nobody signs in or connects again. The log says when the old secret
-  can be dropped.
+Nothing yet.
+
+## 0.4.0
+
+Released 2026-10-19. Safe to share, and to run for other people: access by identity-provider group, rotating the
+session secret, metrics, a rehearsed restore, and browser and accessibility tests. No database migration and no step to upgrade from 0.3.1; the new options are all
+off unless you set them, and the one change you will see without doing anything is slightly adjusted colours.
+
 - **Sign-in by group.** `OIDC_ALLOWED_GROUPS` limits who can sign in to members of the listed groups of your identity
   provider, and `OIDC_ADMIN_GROUPS` makes its groups decide who is an administrator, checked on every sign-in. Someone
   who loses the group is signed out of the sessions they have and can't sign in again. `OIDC_GROUPS_CLAIM` says where
   the provider lists groups (a name, or a dotted path). With admin groups set, Admin → People shows "Set by sign-in
   group" and doesn't offer role changes; the audit log records the change as made through a group. The last active
   administrator is never demoted this way.
+- **Rotating `SESSION_SECRET`.** Put the old secret in `SESSION_SECRET_PREVIOUS` and the new one in `SESSION_SECRET`:
+  sessions keep working (and are sealed again with the new secret as they are used), and on start the app seals every
+  stored platform connection with the new secret, so nobody signs in or connects again. The log says when the old secret
+  can be dropped.
+- **Prometheus metrics** (optional, `METRICS_ENABLED=true`): requests by route and status with latency, calls to the platform by outcome, platform-token refreshes, sign-ins by outcome, open streams, database reachability, and the usual process figures, on a port of their own (`METRICS_PORT`, default 9464) so exposing the app doesn't expose them. `deploy/kubernetes/components/metrics` adds a Service, ServiceMonitor, NetworkPolicy and eight example alerts (checked with promtool).
+- **Restore rehearsed and documented.** The README now says what the database holds, what a restore needs (keep `SESSION_SECRET`) and does, and how to rehearse one on CloudNativePG. Rehearsed on the reference deployment on 2026-10-19: latest state and a point in time, each in about a minute, every table matching, tokens still opening.
+- **Browser tests in CI** (`pnpm e2e`): sign-in, chat with a streamed reply, the inbox (including the status-over-actions layout fixed in 0.3.1, on desktop and touch), administration access and the Connect flow, against a fake platform. Not part of the shipped image.
+- **Accessibility audit.** Automated checks (axe) now run in CI on the main pages in both themes and every accent. Fixed what they found: the Failed and Working statuses and the muted text on the open conversation's row were too faint to read (the light theme's red and blue are darker, the dark theme's muted text a little lighter); the Default model selector in Admin → Agents had no name for screen readers; the user-menu button on a phone didn't start its name with the initials it shows; and the emerald accent's dark-theme buttons (white on 3.3:1) are now darker. Keyboard focus and reduced motion are tested too. What isn't checked is listed in the README.
 
 ## 0.3.1
 
