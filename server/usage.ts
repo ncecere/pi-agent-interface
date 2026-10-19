@@ -171,3 +171,96 @@ export function usageByAgent(
       a.name.localeCompare(b.name),
   );
 }
+
+// ── Connect mode: usage read person by person ────────────────────────────────────────────────
+
+export interface PersonRef {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface ConnectedUsage {
+  people: PersonUsage[];
+  /** Have no connection to the platform: their use is unknown here, not zero. */
+  notConnected: Array<{ name: string; email: string }>;
+  /** Connected, but the platform did not report (it was down, or the connection ended just now). */
+  unavailable: Array<{ name: string; email: string; reason: string }>;
+  total: UsageTotals;
+  byDay: DayUsage[];
+}
+
+/** What reading one person's usage returns: the report by agent and by day, or null when they have not connected. */
+export type PersonReport = { byAgent: PlatformUsageRow[]; byDay: PlatformUsageRow[] } | null;
+
+/**
+ * Usage across people who connected their own platform accounts (Connect mode): each person's own report, read
+ * with their own connection (`read`), a few at a time. A person with no connection is listed as such and a person
+ * whose report could not be read is listed with why: neither is counted as zero, and one failing never loses the others.
+ */
+export async function connectedUsage(
+  people: readonly PersonRef[],
+  read: (person: PersonRef) => Promise<PersonReport>,
+  range: { from: string; to: string },
+  describe: (error: unknown) => string,
+  concurrency = 5,
+): Promise<ConnectedUsage> {
+  const results = new Array<
+    | { kind: 'ok'; report: NonNullable<PersonReport> }
+    | { kind: 'none' }
+    | { kind: 'failed'; reason: string }
+  >(people.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = next++;
+      const person = people[index];
+      if (!person) return;
+      try {
+        const report = await read(person);
+        results[index] = report ? { kind: 'ok', report } : { kind: 'none' };
+      } catch (error) {
+        results[index] = { kind: 'failed', reason: describe(error) };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, people.length) }, worker));
+
+  const out: ConnectedUsage = {
+    people: [],
+    notConnected: [],
+    unavailable: [],
+    total: zero(),
+    byDay: [],
+  };
+  const dayRows: PlatformUsageRow[] = [];
+  people.forEach((person, index) => {
+    const result = results[index];
+    if (!result || result.kind === 'none') {
+      out.notConnected.push({ name: person.name, email: person.email });
+    } else if (result.kind === 'failed') {
+      out.unavailable.push({ name: person.name, email: person.email, reason: result.reason });
+    } else {
+      const rows = result.report.byAgent.filter((row) => row.agentId);
+      const totals = sumUsage(rows);
+      add(out.total, totals);
+      dayRows.push(...result.report.byDay);
+      // Someone connected who used nothing is not a row of zeros: they have nothing to report.
+      if (rows.length > 0)
+        out.people.push({
+          personId: person.id,
+          name: person.name,
+          email: person.email,
+          agents: new Set(rows.map((row) => row.agentId)).size,
+          ...totals,
+        });
+    }
+  });
+  out.people.sort(
+    (a, b) =>
+      b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens) ||
+      a.name.localeCompare(b.name),
+  );
+  out.byDay = usageByDay(dayRows, range.from, range.to);
+  return out;
+}

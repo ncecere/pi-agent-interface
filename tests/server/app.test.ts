@@ -318,7 +318,7 @@ describe('optional features and usage', () => {
   it('tells everyone which features are on', async () => {
     const { cookie } = await signIn('bob');
     const me = await (await app.request('/api/me', { headers: { Cookie: cookie } })).json();
-    expect(me.data.features).toEqual({ usage: true, myUsage: false });
+    expect(me.data.features).toEqual({ usage: true, connectedUsage: false, myUsage: false });
   });
 
   it('shows administrators usage per person, and nobody else', async () => {

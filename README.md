@@ -46,8 +46,9 @@ person ──sign in──▶ chat server ──person's own token──▶ plat
      gives each person agents in that team. Also needs a **model published to the team**, named in `AGENT_MODEL`;
      without one every agent answers from the platform's default.
 
-   In Connect mode, Admin → Usage is not available (people's agents aren't in a team the administrators see);
-   Settings → Usage shows each person their own.
+   In Connect mode, the team-wide Admin → Usage is not available (people's agents aren't in a team the administrators see);
+   turn on the feature "Usage of connected people" (off by default) and it reads each connected person's own report instead,
+   listing who has not connected. Settings → Usage shows each person their own.
 2. **An OpenID Connect provider** (authentik, Keycloak, Entra…): a confidential client whose redirect URI is
    `<APP_URL>/auth/callback`, with the `openid profile email` scopes → `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
    `OIDC_CLIENT_SECRET`. The provider must be reached over https.
@@ -214,7 +215,7 @@ of the problems; if something fails for you, open an issue saying what you used.
 |---|---|---|---|
 | **Deployment** | Environment variables (above) | Whoever runs the server; a restart applies it | Platform URL and key, sign-in, `AGENT_MODEL` as a fallback |
 | **Instance settings** | The app's database; Admin → Agents, Branding | Administrators, at once, in the audit log | Default model, provided agents, the name and logo |
-| **Optional features** | The app's database; Admin → Features | Administrators, at once, in the audit log | `usage` (Admin → Usage), `myUsage` (Settings → Usage) |
+| **Optional features** | The app's database; Admin → Features | Administrators, at once, in the audit log | `usage`, `connectedUsage` (Admin → Usage), `myUsage` (Settings → Usage) |
 | **Personal preferences** | The person's account; Settings | Each person, for themselves, on every device | Theme, avatar style, the inbox (pinned, snoozed, read) |
 
 **Optional features** are whole parts of the app an instance may do without. Each is declared once in
@@ -229,6 +230,7 @@ Features today:
 | Feature | Default | What it does |
 |---|---|---|
 | `usage` | on | Admin → Usage: requests, tokens and an estimated cost per person for the last 7, 30 or 90 days, from the platform's usage report (`GET /v1/teams/{team}/usage`). Agents that name no person here are summed as "Other agents". Cost appears once the platform has prices for the models. |
+| `connectedUsage` | off | Connect only: Admin → Usage for the people who have connected their platform account. Each person's own report is read with their own connection, by agent and by day (`GET /v1/teams/{personal}/usage`), a few at a time and kept for a minute, so opening the page costs a few calls per person. It covers only agents in the person's personal workspace, not their teams'. People who have not connected, and people whose report the platform would not give, are listed apart ("Not in these figures"), never counted as zero. |
 | `myUsage` | off | Settings → Usage: each person sees their own agents' requests, tokens and estimated cost, per agent and per day (`GET /api/me/usage`). Nobody sees anyone else's. |
 
 ## How it works

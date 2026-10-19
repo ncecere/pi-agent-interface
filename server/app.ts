@@ -48,7 +48,15 @@ import {
   type Store,
   StoreError,
 } from './store.ts';
-import { lastDays, sumUsage, usageByAgent, usageByDay, usageByPerson } from './usage.ts';
+import {
+  connectedUsage,
+  lastDays,
+  type PersonReport,
+  sumUsage,
+  usageByAgent,
+  usageByDay,
+  usageByPerson,
+} from './usage.ts';
 
 /** The development accounts (DEV_AUTH, loopback only) unless DEV_ACCOUNTS sets others. */
 export const DEV_ACCOUNTS = DEFAULT_DEV_ACCOUNTS;
@@ -150,7 +158,12 @@ export function createApp(
   if (connectMode && !lockedReasons.has('usage'))
     lockedReasons.set(
       'usage',
-      "Needs the service-account mode: with Connect, people's agents are in their own workspaces, which this app's administrators don't see.",
+      "Needs the service-account mode: with Connect, people's agents are in their own workspaces, which this app's administrators don't see. \"Usage of connected people\" reads them person by person instead.",
+    );
+  if (!connectMode && !lockedReasons.has('connectedUsage'))
+    lockedReasons.set(
+      'connectedUsage',
+      'Only with Connect. In the service-account mode, Usage already reports the whole team.',
     );
   const disabledFeatures = [...lockedReasons.keys()];
   /** What is on now: defaults, the administrators' choices, the environment's locks. */
@@ -881,12 +894,61 @@ export function createApp(
   });
 
   /** Usage per person over the last 7, 30 or 90 days (the `usage` feature). */
+  /** One person's report, read with their own connection, kept a minute so reopening the page is quick. */
+  const personReports = new Map<string, { at: number; report: PersonReport }>();
+  const PERSON_REPORT_TTL_MS = 60_000;
+
   app.get('/api/admin/usage', async (c) => {
-    if (!(await feature('usage'))) return fail(c, 404, 'feature_off', 'Usage is turned off.');
     const days = [7, 30, 90].includes(Number(c.req.query('days')))
       ? Number(c.req.query('days'))
       : 30;
     const { from, to } = lastDays(days);
+    if (workspace) {
+      // Connect mode (the `connectedUsage` feature): each connected person's own report.
+      if (!(await feature('connectedUsage')))
+        return fail(c, 404, 'feature_off', 'Usage of connected people is turned off.');
+      const connected = new Set(await store.connectionIds());
+      const everyone = await store.people();
+      const byId = new Map(everyone.map((person) => [person.id, person]));
+      const read = async (ref: { id: string }): Promise<PersonReport> => {
+        const person = byId.get(ref.id);
+        if (!person || !connected.has(person.id)) return null;
+        const cacheKey = `${person.id}|${from}|${to}`;
+        const known = personReports.get(cacheKey);
+        if (known && Date.now() - known.at < PERSON_REPORT_TTL_MS) return known.report;
+        let report: PersonReport;
+        try {
+          const [byAgent, byDay] = await Promise.all([
+            workspace.usage(person, 'agent', from, to),
+            workspace.usage(person, 'day', from, to),
+          ]);
+          report = { byAgent, byDay };
+        } catch (error) {
+          if (error instanceof NotConnected)
+            report = null; // their connection ended since
+          else throw error;
+        }
+        if (personReports.size > 2_000) personReports.clear();
+        personReports.set(cacheKey, { at: Date.now(), report });
+        return report;
+      };
+      const describe = (error: unknown) =>
+        error instanceof PlatformError
+          ? `The platform answered ${error.status}.`
+          : error instanceof AgentProblem
+            ? error.message
+            : 'The platform could not be reached.';
+      const data = await connectedUsage(
+        everyone.map((person) => ({ id: person.id, name: person.name, email: person.email })),
+        read,
+        { from, to },
+        describe,
+      );
+      return c.json({
+        data: { from, to, days, scope: 'connected', ...data, unassigned: null },
+      });
+    }
+    if (!(await feature('usage'))) return fail(c, 404, 'feature_off', 'Usage is turned off.');
     try {
       const [byAgent, byDayRows, managed] = await Promise.all([
         platform.usage('agent', from, to),

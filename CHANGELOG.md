@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Usage with Connect** (new optional feature "Usage of connected people", off by default): Admin → Usage reads each connected person's own personal-workspace report with their own connection (a few at a time, kept a minute) and lists, apart, the people who have not connected and those the platform would not report on, so they are never counted as zero. It covers only the agents in people's personal workspaces. The team-wide Usage stays for the service-account mode.
 - **Long conversation lists.** The sidebar draws 40 conversations of each shelf and adds 40 with each "Show more", always keeping the open one in its list; a search still looks through all of them (and opens the Settled and Archived shelves that hold a match). Settings → Conversations pages its lists the same way and has a search box once they are long. With 2,000 conversations, measured on one machine: the sidebar went from about 2,000 rows and 103,000 page elements to 40 rows and 2,200, and the first row from about 5 s to 0.1 s. The platform's list has no paging, so the whole list still comes from it; the app now gzips its JSON and scripts (they went out uncompressed), and keeps only the newest 100 conversations per agent in the browser's copy.
 - The Kubernetes base passes an optional `SESSION_SECRET_PREVIOUS` key of the `pi-agent-interface-runtime` Secret to the app, so a rotation there is just adding the key. (In 0.4.0 the base didn't, and an overlay had to add it.)
 

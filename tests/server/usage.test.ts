@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFeatureChange, resolveFeatures } from '../../server/features.ts';
 import {
+  connectedUsage,
   lastDays,
   personOfKey,
   sumUsage,
@@ -22,9 +23,10 @@ const row = (agentId: string | null, requests: number, tokens = 100, day?: strin
 
 describe('features', () => {
   it('uses the default until an administrator chooses, and the environment can lock one off', () => {
-    expect(resolveFeatures(null)).toEqual({ usage: true, myUsage: false });
+    expect(resolveFeatures(null)).toEqual({ usage: true, connectedUsage: false, myUsage: false });
     expect(resolveFeatures({ usage: false, myUsage: true })).toEqual({
       usage: false,
+      connectedUsage: false,
       myUsage: true,
     });
     expect(resolveFeatures({ usage: true }, ['usage'])).toMatchObject({ usage: false });
@@ -110,5 +112,99 @@ describe('usage by agent', () => {
       ['Agent a', 3],
     ]);
     expect(sumUsage(out).requests).toBe(4);
+  });
+});
+
+describe('connectedUsage (Connect mode, person by person)', () => {
+  const range = { from: '2026-10-01', to: '2026-10-03' };
+  const row = (agentId: string, requests: number) => ({
+    agentId,
+    requests,
+    inputTokens: requests * 100,
+    outputTokens: requests * 10,
+    costUsd: requests / 100,
+    unpricedRequests: 0,
+  });
+  const ref = (n: string) => ({ id: n, name: n.toUpperCase(), email: `${n}@example.test` });
+  const describeError = (error: unknown) => (error as Error).message;
+
+  it('sums connected people, ranks them by tokens, and lists who is not covered apart', async () => {
+    const reports: Record<string, ReturnType<typeof report> | null> = {};
+    const report = (agents: [string, number][], dayRequests: number) => ({
+      byAgent: agents.map(([id, n]) => row(id, n)),
+      byDay: [{ day: '2026-10-02', ...row('x', dayRequests) }],
+    });
+    reports.ann = report(
+      [
+        ['a1', 5],
+        ['a2', 5],
+      ],
+      10,
+    );
+    reports.ben = report([['b1', 50]], 50);
+    reports.cy = null; // not connected
+    reports.dee = report([], 0); // connected, used nothing
+    const out = await connectedUsage(
+      ['ann', 'ben', 'cy', 'dee'].map(ref),
+      async (person) => reports[person.id] ?? null,
+      range,
+      describeError,
+    );
+    expect(out.people.map((p) => [p.personId, p.requests, p.agents])).toEqual([
+      ['ben', 50, 1],
+      ['ann', 10, 2],
+    ]);
+    expect(out.notConnected).toEqual([{ name: 'CY', email: 'cy@example.test' }]);
+    expect(out.unavailable).toEqual([]);
+    expect(out.total.requests).toBe(60);
+    expect(out.total.inputTokens).toBe(6000);
+    expect(out.byDay).toHaveLength(3);
+    expect(out.byDay.find((d) => d.day === '2026-10-02')?.requests).toBe(60);
+    expect(out.byDay.find((d) => d.day === '2026-10-01')?.requests).toBe(0);
+  });
+
+  it('keeps going when one person cannot be read, and says why', async () => {
+    const out = await connectedUsage(
+      ['ann', 'ben', 'cy'].map(ref),
+      async (person) => {
+        if (person.id === 'ben') throw new Error('The platform answered 503.');
+        return { byAgent: [row('a', 3)], byDay: [] };
+      },
+      range,
+      describeError,
+    );
+    expect(out.people.map((p) => p.personId).sort()).toEqual(['ann', 'cy']);
+    expect(out.unavailable).toEqual([
+      { name: 'BEN', email: 'ben@example.test', reason: 'The platform answered 503.' },
+    ]);
+    expect(out.total.requests).toBe(6);
+  });
+
+  it('reads at most a few at a time', async () => {
+    let running = 0;
+    let most = 0;
+    const out = await connectedUsage(
+      Array.from({ length: 23 }, (_, i) => ref(`p${i}`)),
+      async () => {
+        running++;
+        most = Math.max(most, running);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        running--;
+        return { byAgent: [row('a', 1)], byDay: [] };
+      },
+      range,
+      describeError,
+      4,
+    );
+    expect(out.people).toHaveLength(23);
+    expect(most).toBeLessThanOrEqual(4);
+    expect(most).toBeGreaterThan(1);
+  });
+
+  it('has nothing to report for nobody', async () => {
+    const out = await connectedUsage([], async () => null, range, describeError);
+    expect(out.people).toEqual([]);
+    expect(out.total.requests).toBe(0);
+    expect(out.byDay).toHaveLength(3);
   });
 });

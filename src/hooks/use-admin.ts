@@ -201,6 +201,10 @@ export interface UsageReport {
   unassigned: UsageTotals | null;
   total: UsageTotals;
   byDay: Array<UsageTotals & { day: string }>;
+  /** `connected` (Connect mode): read person by person, so who it could not cover is listed. */
+  scope?: 'connected';
+  notConnected?: Array<{ name: string; email: string }>;
+  unavailable?: Array<{ name: string; email: string; reason: string }>;
 }
 
 export const useUsage = (days: number) =>

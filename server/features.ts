@@ -28,6 +28,12 @@ export const FEATURES = {
       "Administrators see how much each person's agents use their models: requests, tokens and an estimated cost, from the platform's usage reports.",
     default: true,
   },
+  connectedUsage: {
+    label: 'Usage of connected people',
+    description:
+      "With Connect, administrators see requests, tokens and an estimated cost for each person who has connected their platform account: read from the person's own personal workspace, with their own connection, when an administrator opens Admin → Usage. It covers only what they run there (not agents of their teams), and says who has not connected rather than counting them as zero.",
+    default: false,
+  },
   myUsage: {
     label: 'Personal usage',
     description:

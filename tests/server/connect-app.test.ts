@@ -41,6 +41,7 @@ function fakePlatform() {
   let n = 0;
   let nextAgent = 0;
   let email = 'tim@example.test';
+  let usageStatus = 200;
   const agents = new Map<string, Record<string, unknown>>();
   const add = (team: typeof PERSONAL, name: string, extra: Record<string, unknown> = {}) => {
     const id = `00000000-0000-4000-8000-${String(++nextAgent).padStart(12, '0')}`;
@@ -147,6 +148,24 @@ function fakePlatform() {
         return json(agent);
       }
     }
+    if (path === `/v1/teams/${PERSONAL.slug}/usage`) {
+      if (usageStatus !== 200)
+        return Response.json({ error: { code: 'unavailable' } }, { status: usageStatus });
+      const agentId = [...agents.values()].find((a) => a.teamId === PERSONAL.id)?.id ?? 'a1';
+      const row = {
+        requests: 10,
+        inputTokens: 1000,
+        outputTokens: 200,
+        costUsd: 0.5,
+        unpricedRequests: 0,
+      };
+      return json({
+        rows:
+          url.searchParams.get('groupBy') === 'day'
+            ? [{ ...row, day: new Date().toISOString().slice(0, 10) }]
+            : [{ ...row, agentId, agentName: 'Assistant' }],
+      });
+    }
     if (/^\/v1\/agents\/[^/]+\/threads$/.test(path)) return json([]);
     return Response.json({ error: { code: 'not_found' } }, { status: 404 });
   }) as typeof fetch;
@@ -164,6 +183,10 @@ function fakePlatform() {
     },
     setEmail(value: string) {
       email = value;
+    },
+    /** What the personal workspace's usage report answers with. */
+    setUsageStatus(value: number) {
+      usageStatus = value;
     },
     refreshTokens: refresh,
     revokeAll() {
@@ -360,6 +383,106 @@ describe('Connect mode', () => {
     expect(features.find((feature: { id: string }) => feature.id === 'usage')).toMatchObject({
       enabled: false,
       locked: true,
+    });
+  });
+
+  describe('Admin → Usage with Connect (the connectedUsage feature)', () => {
+    const turnOn = async (tim: { cookie: string; csrf: string }) =>
+      app.request('/api/admin/settings/features', {
+        method: 'PUT',
+        headers: {
+          Cookie: tim.cookie,
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': tim.csrf,
+          Origin: APP,
+        },
+        body: JSON.stringify({ connectedUsage: true }),
+      });
+    const signInAs = async (account: string) => {
+      const response = await app.request('/auth/dev', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: APP },
+        body: JSON.stringify({ account }),
+      });
+      expect(response.status).toBe(200);
+    };
+
+    it('is off until an administrator turns it on, and Usage stays locked', async () => {
+      const tim = await connectTim();
+      const features = (await (await get('/api/admin/features', tim.cookie)).json()).data as Array<{
+        id: string;
+        enabled: boolean;
+        locked: boolean;
+      }>;
+      expect(features.find((f) => f.id === 'connectedUsage')).toMatchObject({
+        enabled: false,
+        locked: false,
+      });
+      expect((await get('/api/admin/usage', tim.cookie)).status).toBe(404);
+      expect((await turnOn(tim)).status).toBe(200);
+      expect((await get('/api/admin/usage', tim.cookie)).status).toBe(200);
+    });
+
+    it('reports each connected person, and names who is not covered instead of counting them as zero', async () => {
+      const tim = await connectTim();
+      await signInAs('bob'); // signed in, never connected
+      await turnOn(tim);
+      const report = (await (await get('/api/admin/usage?days=30', tim.cookie)).json()).data;
+      expect(report.scope).toBe('connected');
+      expect(report.people).toHaveLength(1);
+      expect(report.people[0]).toMatchObject({
+        email: 'tim@example.test',
+        requests: 10,
+        inputTokens: 1000,
+        outputTokens: 200,
+        agents: 1,
+      });
+      expect(report.notConnected.map((p: { email: string }) => p.email)).toEqual([
+        'bob@example.test',
+      ]);
+      expect(report.unavailable).toEqual([]);
+      expect(report.total.requests).toBe(10);
+      expect(report.byDay.reduce((n: number, d: { requests: number }) => n + d.requests, 0)).toBe(
+        10,
+      );
+      expect(report.byDay).toHaveLength(30);
+    });
+
+    it('reads a person\u2019s report once a minute, not on every visit', async () => {
+      const tim = await connectTim();
+      await turnOn(tim);
+      const usageCalls = () => platform.calls.filter((call) => call.endsWith('/usage')).length;
+      await get('/api/admin/usage', tim.cookie);
+      const first = usageCalls();
+      expect(first).toBe(2); // by agent, by day
+      await get('/api/admin/usage', tim.cookie);
+      expect(usageCalls()).toBe(first);
+      await get('/api/admin/usage?days=7', tim.cookie); // another range is another report
+      expect(usageCalls()).toBe(first + 2);
+    });
+
+    it('lists a person whose report the platform would not give, with why, and keeps the rest', async () => {
+      const tim = await connectTim();
+      await turnOn(tim);
+      platform.setUsageStatus(503);
+      const report = (await (await get('/api/admin/usage', tim.cookie)).json()).data;
+      expect(report.people).toEqual([]);
+      expect(report.unavailable).toEqual([
+        { name: 'Tim', email: 'tim@example.test', reason: 'The platform answered 503.' },
+      ]);
+      expect(report.total.requests).toBe(0);
+    });
+
+    it('is for administrators only', async () => {
+      await connectTim();
+      await signInAs('bob');
+      const bob = await app.request('/auth/dev', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: APP },
+        body: JSON.stringify({ account: 'bob' }),
+      });
+      const cookie = bob.headers.get('set-cookie')!.split(';')[0]!;
+      expect((await get('/api/admin/usage', cookie)).status).toBe(403);
     });
   });
 });

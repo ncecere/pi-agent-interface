@@ -31,7 +31,11 @@ export function AdminUsagePage() {
     <>
       <AdminHeader
         title="Usage"
-        description="How much each person's agents use their models: requests, tokens and an estimated cost. From the agent platform; days are in UTC."
+        description={
+          data?.scope === 'connected'
+            ? "How much each connected person's own agents use their models: requests, tokens and an estimated cost, read from their personal workspace on the platform. Agents of their teams are not counted. Days are in UTC."
+            : "How much each person's agents use their models: requests, tokens and an estimated cost. From the agent platform; days are in UTC."
+        }
         actions={<RangePicker value={days} onChange={setDays} />}
       />
 
@@ -51,6 +55,13 @@ export function AdminUsagePage() {
           <StatStrip>
             <TotalsStats total={data.total} />
             <Stat label="People" value={data.people.length} hint="whose agents were used" />
+            {data.scope === 'connected' && (
+              <Stat
+                label="Not covered"
+                value={(data.notConnected?.length ?? 0) + (data.unavailable?.length ?? 0)}
+                hint="not connected, or not reachable"
+              />
+            )}
           </StatStrip>
 
           <section aria-labelledby="usage-days">
@@ -132,6 +143,36 @@ export function AdminUsagePage() {
               </table>
             </div>
           </section>
+
+          {data.scope === 'connected' &&
+            ((data.unavailable?.length ?? 0) > 0 || (data.notConnected?.length ?? 0) > 0) && (
+              <section aria-labelledby="usage-coverage">
+                <h2 id="usage-coverage" className="mb-1 text-lg font-semibold">
+                  Not in these figures
+                </h2>
+                <p className="mb-3 text-sm text-[var(--text-muted)]">
+                  Their use is unknown here, which is not the same as none.
+                </p>
+                <ul className="divide-y divide-[var(--border-subtle)] rounded-xl border border-[var(--border-subtle)] text-sm">
+                  {data.unavailable?.map((person) => (
+                    <li key={`u-${person.email}`} className="flex flex-wrap gap-x-3 px-4 py-2.5">
+                      <span className="font-medium">{person.name || person.email}</span>
+                      <span className="text-[var(--text-muted)]">{person.email}</span>
+                      <span className="ml-auto text-[var(--danger-on-tint)]">
+                        Could not be read: {person.reason}
+                      </span>
+                    </li>
+                  ))}
+                  {data.notConnected?.map((person) => (
+                    <li key={`n-${person.email}`} className="flex flex-wrap gap-x-3 px-4 py-2.5">
+                      <span className="font-medium">{person.name || person.email}</span>
+                      <span className="text-[var(--text-muted)]">{person.email}</span>
+                      <span className="ml-auto text-[var(--text-muted)]">Has not connected</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
         </div>
       )}
     </>

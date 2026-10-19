@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 /**
@@ -58,4 +59,59 @@ test('Admin › Usage is not offered with Connect, and says why', async ({ page 
   );
   expect(usage?.enabled).toBe(false);
   expect(usage?.lockedReason).toBeTruthy();
+});
+
+test('Admin › Usage with Connect: each connected person, and who is not covered', async ({
+  page,
+  browser,
+}, info) => {
+  test.skip(info.project.name === 'touch', 'desktop only');
+  // Priya signs in to this app and never connects.
+  const other = await browser.newContext({ baseURL: CONNECT });
+  const priya = await other.newPage();
+  await priya.goto('/sign-in');
+  await priya.evaluate(() =>
+    fetch('/auth/dev', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: 'priya' }),
+    }),
+  );
+  await other.close();
+
+  await approveAs('morgan.lee@example.com');
+  await page.goto('/sign-in');
+  await page.getByRole('button', { name: /Morgan Lee/ }).click();
+  // Connected already by an earlier test, or about to be.
+  const connect = page.getByRole('link', { name: /^Connect/ });
+  const chat = page.getByRole('heading', { name: /What should .* work on/ });
+  await expect(connect.or(chat)).toBeVisible();
+  if (await connect.isVisible()) await connect.click();
+  await expect(page.getByRole('heading', { name: /What should .* work on/ })).toBeVisible({
+    timeout: 20_000,
+  });
+
+  // Off to begin with: no page, no menu entry.
+  await page.goto('/admin/features');
+  const usage = page.getByRole('switch', { name: 'Usage of connected people' });
+  await expect(usage).not.toBeChecked();
+  await expect(page.getByRole('link', { name: 'Usage', exact: true })).toHaveCount(0);
+  await usage.click();
+  await expect(usage).toBeChecked();
+
+  await page.getByRole('link', { name: 'Usage', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Usage' })).toBeVisible();
+  await expect(page.getByText('Not covered')).toBeVisible();
+  await expect(page.getByRole('row', { name: /Morgan Lee/ })).toBeVisible();
+  const missing = page
+    .getByRole('region', { name: 'Not in these figures' })
+    .or(page.locator('section[aria-labelledby="usage-coverage"]'));
+  await expect(missing.getByText('Priya Shah')).toBeVisible();
+  await expect(missing.getByText('Has not connected').first()).toBeVisible();
+  const found = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  expect(
+    found.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`),
+  ).toEqual([]);
 });

@@ -31,8 +31,8 @@ interface NavItem {
     | '/admin/audit';
   label: string;
   icon: LucideIcon;
-  /** Shown only while this optional feature is on. */
-  feature?: FeatureId;
+  /** Shown only while one of these optional features is on. */
+  feature?: FeatureId | FeatureId[];
 }
 
 const OVERVIEW: NavItem = { to: '/admin', label: 'Overview', icon: LayoutDashboard };
@@ -49,7 +49,12 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Records',
     items: [
-      { to: '/admin/usage', label: 'Usage', icon: ChartColumn, feature: 'usage' },
+      {
+        to: '/admin/usage',
+        label: 'Usage',
+        icon: ChartColumn,
+        feature: ['usage', 'connectedUsage'],
+      },
       { to: '/admin/audit', label: 'Audit log', icon: ScrollText },
     ],
   },
@@ -89,7 +94,10 @@ function AdminNav({ pathname }: { pathname: string }) {
           </p>
           <ul className="flex flex-col gap-px">
             {section.items
-              .filter((item) => !item.feature || features[item.feature])
+              .filter(
+                (item) =>
+                  !item.feature || [item.feature].flat().some((feature) => features[feature]),
+              )
               .map((item) => (
                 <li key={item.to}>
                   <NavLink item={item} pathname={pathname} />
