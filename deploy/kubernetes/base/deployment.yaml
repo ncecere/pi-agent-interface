@@ -75,6 +75,13 @@ spec:
                 secretKeyRef:
                   name: pi-agent-interface-runtime
                   key: SESSION_SECRET
+            # Only while rotating SESSION_SECRET (README: Rotating SESSION_SECRET): the old secret(s), comma-separated.
+            - name: SESSION_SECRET_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: pi-agent-interface-runtime
+                  key: SESSION_SECRET_PREVIOUS
+                  optional: true
             - name: OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Nothing yet.
+- The Kubernetes base passes an optional `SESSION_SECRET_PREVIOUS` key of the `pi-agent-interface-runtime` Secret to the app, so a rotation there is just adding the key. (In 0.4.0 the base didn't, and an overlay had to add it.)
 
 ## 0.4.0
 
