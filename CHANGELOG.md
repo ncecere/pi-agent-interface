@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-Nothing yet.
+- **Sign-in by group.** `OIDC_ALLOWED_GROUPS` limits who can sign in to members of the listed groups of your identity
+  provider, and `OIDC_ADMIN_GROUPS` makes its groups decide who is an administrator, checked on every sign-in. Someone
+  who loses the group is signed out of the sessions they have and can't sign in again. `OIDC_GROUPS_CLAIM` says where
+  the provider lists groups (a name, or a dotted path). With admin groups set, Admin → People shows "Set by sign-in
+  group" and doesn't offer role changes; the audit log records the change as made through a group. The last active
+  administrator is never demoted this way.
 
 ## 0.3.1
 

@@ -119,6 +119,11 @@ export function AdminPeoplePage() {
                       <Pill tone={person.role === 'admin' ? 'accent' : 'muted'}>
                         {person.role === 'admin' ? 'Administrator' : 'Member'}
                       </Pill>
+                      {person.roleManaged && (
+                        <span className="mt-1 block text-[0.6875rem] text-[var(--text-muted)]">
+                          Set by sign-in group
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Pill tone={person.status === 'suspended' ? 'danger' : 'muted'}>
@@ -140,29 +145,34 @@ export function AdminPeoplePage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52">
-                          {person.role === 'admin' ? (
-                            <DropdownMenuItem
-                              onSelect={() =>
-                                change(person, { role: 'user' }, `${name(person)} is now a member.`)
-                              }
-                            >
-                              <ShieldOff />
-                              Make member
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem
-                              onSelect={() =>
-                                change(
-                                  person,
-                                  { role: 'admin' },
-                                  `${name(person)} is now an administrator.`,
-                                )
-                              }
-                            >
-                              <ShieldCheck />
-                              Make administrator
-                            </DropdownMenuItem>
-                          )}
+                          {!person.roleManaged &&
+                            (person.role === 'admin' ? (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  change(
+                                    person,
+                                    { role: 'user' },
+                                    `${name(person)} is now a member.`,
+                                  )
+                                }
+                              >
+                                <ShieldOff />
+                                Make member
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  change(
+                                    person,
+                                    { role: 'admin' },
+                                    `${name(person)} is now an administrator.`,
+                                  )
+                                }
+                              >
+                                <ShieldCheck />
+                                Make administrator
+                              </DropdownMenuItem>
+                            ))}
                           {person.status === 'suspended' ? (
                             <DropdownMenuItem
                               onSelect={() =>

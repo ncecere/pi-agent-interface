@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { FEATURE_IDS, isFeatureId } from './features.ts';
+import { type GroupRules, groupRules } from './groups.ts';
 
 /** A development account: signs in with no password (DEV_AUTH, loopback only). */
 export interface DevAccount {
@@ -101,6 +102,8 @@ export interface Config {
   sessionTtlSeconds: number;
   /** Single sign-on; all three or none. */
   oidc: { issuer: URL; clientId: string; clientSecret: string; scopes: string } | null;
+  /** Who may sign in and who is an administrator, by the provider's groups; null when groups play no part. */
+  oidcGroups?: GroupRules | null;
   /** Fixed development accounts with no password. Only with a loopback APP_URL. */
   devAuth: boolean;
   /** The accounts DEV_AUTH offers (DEV_ACCOUNTS); only read while `devAuth` is on. Default: tim, bob and sally. */
@@ -164,6 +167,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         scopes: env.OIDC_SCOPES?.trim() || 'openid profile email',
       };
   }
+  const oidcGroups = groupRules(env);
+  if (oidcGroups && !oidc)
+    problems.push('OIDC_ALLOWED_GROUPS and OIDC_ADMIN_GROUPS need single sign-on (OIDC_*)');
   if (!oidc && !devAuth) problems.push('Configure OIDC_* for sign-in (or DEV_AUTH=true locally)');
 
   if (oidc && oidc.issuer.protocol !== 'https:' && !isLoopback(oidc.issuer))
@@ -205,6 +211,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sessionSecret,
     sessionTtlSeconds: Number.isFinite(ttlHours) && ttlHours > 0 ? ttlHours * 3600 : 168 * 3600,
     oidc,
+    oidcGroups,
     devAuth,
     ...(devAuth && env.DEV_ACCOUNTS?.trim()
       ? { devAccounts: parseDevAccounts(env.DEV_ACCOUNTS, problems) }

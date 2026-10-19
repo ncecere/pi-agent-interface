@@ -69,6 +69,9 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `INITIAL_ADMIN_EMAIL` | Becomes an administrator on signing in while there is no administrator. After that, admins promote others. |
 | `SESSION_SECRET` | 32+ characters (`openssl rand -base64 48`). Encrypts sessions; changing it signs everyone out. |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Single sign-on. All three. |
+| `OIDC_ALLOWED_GROUPS` | Comma-separated group names. When set, only members of one of these (or of an admin group) can sign in; everyone else sees "isn't allowed" and, if they had signed in before, their sessions end. Empty: anyone your provider signs in. |
+| `OIDC_ADMIN_GROUPS` | Comma-separated group names. When set, the provider decides who is an administrator, on every sign-in: members become administrators, others members. Admin → People then can't change roles. The last active administrator is never demoted this way (use `INITIAL_ADMIN_EMAIL`, or the recovery command, to get back in). |
+| `OIDC_GROUPS_CLAIM` | Where the provider lists a person's groups: the claim's name (default `groups`), or a dotted path for a nested one (`realm_access.roles`). Looked for in the ID token, then at the userinfo endpoint. Names are matched exactly. The provider must release it: with authentik the default `profile` scope does; with others add the scope in `OIDC_SCOPES`. |
 | `DEV_AUTH` | `true` enables the development accounts tim, bob and sally. Refused unless `APP_URL` is loopback. |
 | `DEV_ACCOUNTS` | With `DEV_AUTH=true`: the development accounts to offer instead of tim, bob and sally, as a JSON array of `{"id", "name", "email"}` (ids unique: letters, digits, dots, dashes, underscores). Ignored while `DEV_AUTH` is off. |
 | `HOST`, `PORT` | Where to listen (default `127.0.0.1:5178`; the container uses `0.0.0.0:8080`). |

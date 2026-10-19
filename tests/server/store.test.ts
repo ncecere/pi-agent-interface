@@ -58,6 +58,24 @@ function contract(name: string, make: () => Promise<Store>) {
       expect((await store.signIn(tim, 'tim@example.test')).role).toBe('user');
     });
 
+    it('follows the provider’s groups for the role on each sign-in, auditing the change', async () => {
+      expect((await store.signIn(bob, null, true)).role).toBe('admin');
+      expect((await store.signIn(tim, null, true)).role).toBe('admin');
+      expect((await store.signIn(tim, null, false)).role).toBe('user');
+      expect((await store.signIn(tim, null, null)).role).toBe('user');
+      const changes = (await store.audit(20)).filter((entry) => entry.action === 'person.role');
+      expect(changes.map((entry) => entry.details)).toEqual([
+        { from: 'admin', to: 'user', via: 'group' },
+        { from: 'user', to: 'admin', via: 'group' },
+        { from: 'user', to: 'admin', via: 'group' },
+      ]);
+    });
+
+    it('does not let the provider demote the last active administrator', async () => {
+      await store.signIn(tim, null, true);
+      expect((await store.signIn(tim, null, false)).role).toBe('admin');
+    });
+
     it('never leaves no active administrator', async () => {
       await store.signIn(tim, 'tim@example.test');
       await expect(store.updatePerson('tim', { role: 'user' }, 'tim')).rejects.toMatchObject({

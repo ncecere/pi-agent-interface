@@ -225,6 +225,7 @@ export class PgStore implements Store {
   async signIn(
     user: { id: string; email: string; name: string },
     initialAdminEmail: string | null,
+    adminByGroup: boolean | null = null,
   ) {
     return this.sql.begin(async (tx) => {
       const [row] = await tx<(PersonRow & { inserted: boolean })[]>`
@@ -247,6 +248,25 @@ export class PgStore implements Store {
           >`update people set role = 'admin' where id = ${user.id} returning *`;
           await tx`insert into audit_log (action, target_id, details) values ('person.initial_admin', ${user.id}, ${tx.json({ email: user.email })})`;
           if (promoted) person = toPerson(promoted);
+        }
+      }
+      if (adminByGroup !== null) {
+        const wanted = adminByGroup ? 'admin' : 'user';
+        if (person.role !== wanted) {
+          // Never demote the last active administrator: that would lock everyone out.
+          const [others] = await tx<{ count: number }[]>`
+            select count(*)::int as count from people
+            where role = 'admin' and status = 'active' and id <> ${user.id}`;
+          const lastAdmin =
+            person.role === 'admin' && person.status === 'active' && (others?.count ?? 0) === 0;
+          if (!(wanted === 'user' && lastAdmin)) {
+            const [changed] = await tx<
+              PersonRow[]
+            >`update people set role = ${wanted} where id = ${user.id} returning *`;
+            await tx`insert into audit_log (action, target_id, details)
+              values ('person.role', ${user.id}, ${tx.json({ from: person.role, to: wanted, via: 'group' })})`;
+            if (changed) person = toPerson(changed);
+          }
         }
       }
       return person;

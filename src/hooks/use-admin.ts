@@ -10,6 +10,8 @@ export interface AdminPerson {
   status: 'active' | 'suspended';
   createdAt: string;
   lastSeenAt: string | null;
+  /** The sign-in provider decides who is an administrator; the role can't be changed here. */
+  roleManaged?: boolean;
 }
 
 export interface AuditEntry {

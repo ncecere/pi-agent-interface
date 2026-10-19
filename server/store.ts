@@ -61,10 +61,15 @@ export interface Store {
    * and email, and notes when they were last seen. The person whose email is
    * `initialAdminEmail` becomes an administrator, but only while there is no
    * active administrator at all (the bootstrap; a demotion later sticks).
+   *
+   * `adminByGroup` is the identity provider's say on the role (OIDC_ADMIN_GROUPS):
+   * true makes the person an administrator, false a member (never the last
+   * active administrator), null leaves the role alone.
    */
   signIn(
     user: { id: string; email: string; name: string },
     initialAdminEmail: string | null,
+    adminByGroup?: boolean | null,
   ): Promise<Person>;
   person(id: string): Promise<Person | null>;
   /** Most recently seen first. */
@@ -148,6 +153,7 @@ export class MemoryStore implements Store {
   async signIn(
     user: { id: string; email: string; name: string },
     initialAdminEmail: string | null,
+    adminByGroup: boolean | null = null,
   ) {
     const now = new Date();
     const existing = this.rows.get(user.id);
@@ -169,6 +175,17 @@ export class MemoryStore implements Store {
     ) {
       person.role = 'admin';
       this.record(null, 'person.initial_admin', user.id, { email: user.email });
+    }
+    if (adminByGroup !== null) {
+      const wanted: Role = adminByGroup ? 'admin' : 'user';
+      const lastAdmin =
+        person.role === 'admin' &&
+        person.status === 'active' &&
+        this.activeAdmins().filter((other) => other.id !== user.id).length === 0;
+      if (person.role !== wanted && !(wanted === 'user' && lastAdmin)) {
+        this.record(null, 'person.role', user.id, { from: person.role, to: wanted, via: 'group' });
+        person.role = wanted;
+      }
     }
     this.rows.set(user.id, person);
     return { ...person };

@@ -25,6 +25,7 @@ import {
   parseFeatureChange,
   resolveFeatures,
 } from './features.ts';
+import { decide, groupsFrom } from './groups.ts';
 import { ownsAgent, Platform, type PlatformAgent, PlatformError } from './platform.ts';
 import {
   type LoginState,
@@ -436,9 +437,38 @@ export function createApp(
         (typeof claims.name === 'string' && claims.name) ||
         (typeof claims.preferred_username === 'string' && claims.preferred_username) ||
         email;
+      const id = userIdFor(claims.iss, claims.sub);
+      let adminByGroup: boolean | null = null;
+      const rules = config.oidcGroups;
+      if (rules) {
+        // The ID token's groups, else the userinfo endpoint's (providers differ in which they put where).
+        let groups = groupsFrom(claims, rules.claim);
+        if (!groups && tokens.access_token) {
+          const info = await oidc
+            .fetchUserInfo(client, tokens.access_token, claims.sub)
+            .catch(() => null);
+          if (info) groups = groupsFrom(info, rules.claim);
+        }
+        if (!groups)
+          console.warn(
+            `[auth] ${email || claims.sub}: no "${rules.claim}" claim; the provider must release it (check OIDC_SCOPES and OIDC_GROUPS_CLAIM)`,
+          );
+        const decision = decide(rules, groups ?? []);
+        if (!decision.allowed) {
+          // Losing the group also ends the sessions they already have.
+          if (await store.person(id)) {
+            await store.endSessions(id, null);
+            forget(id);
+          }
+          console.warn(`[auth] ${email || claims.sub} is not in an allowed group`);
+          return c.redirect('/sign-in?error=not_allowed');
+        }
+        adminByGroup = decision.admin;
+      }
       const person = await store.signIn(
-        { id: userIdFor(claims.iss, claims.sub), name, email },
+        { id, name, email },
         config.initialAdminEmail,
+        adminByGroup,
       );
       if (person.status === 'suspended') return c.redirect('/sign-in?error=suspended');
       startSession(c, person);
@@ -519,6 +549,7 @@ export function createApp(
 
   app.use('/api/admin/*', requireSession, requireAdmin);
 
+  const rolesFromGroups = (config.oidcGroups?.admin.length ?? 0) > 0;
   const personView = (person: Person) => ({
     id: person.id,
     email: person.email,
@@ -527,6 +558,8 @@ export function createApp(
     status: person.status,
     createdAt: person.createdAt.toISOString(),
     lastSeenAt: person.lastSeenAt?.toISOString() ?? null,
+    /** True when the sign-in provider decides who is an administrator (OIDC_ADMIN_GROUPS). */
+    roleManaged: rolesFromGroups,
   });
 
   app.get('/api/admin/people', async (c) => {
@@ -541,6 +574,13 @@ export function createApp(
     if (body.role !== undefined) {
       if (body.role !== 'admin' && body.role !== 'user')
         return fail(c, 400, 'invalid_role', 'role is admin or user');
+      if (rolesFromGroups)
+        return fail(
+          c,
+          409,
+          'role_managed',
+          'Administrators are set by the sign-in provider (OIDC_ADMIN_GROUPS). Change the group there.',
+        );
       change.role = body.role;
     }
     if (body.status !== undefined) {

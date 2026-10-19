@@ -11,7 +11,7 @@ export function describeAudit(entry: AuditEntry, names: Map<string, string>): st
   const target = entry.targetId
     ? (names.get(entry.targetId) ?? String(entry.details.email ?? 'someone'))
     : '';
-  const details = entry.details as { from?: string; to?: string; email?: string };
+  const details = entry.details as { from?: string; to?: string; email?: string; via?: string };
   switch (entry.action) {
     case 'person.created':
       return `${target} signed in for the first time`;
@@ -20,6 +20,10 @@ export function describeAudit(entry: AuditEntry, names: Map<string, string>): st
     case 'person.promoted_cli':
       return `${target} was made an administrator from the server (recovery command)`;
     case 'person.role':
+      if (details.via === 'group')
+        return details.to === 'admin'
+          ? `${target} became an administrator through a sign-in group`
+          : `${target} stopped being an administrator: left the sign-in group`;
       return details.to === 'admin'
         ? `${actor} made ${target} an administrator`
         : `${actor} made ${target} a member`;

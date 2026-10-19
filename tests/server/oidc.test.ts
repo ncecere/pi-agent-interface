@@ -28,6 +28,11 @@ let signingKey: CryptoKey;
 const grants = new Map<string, { challenge: string; nonce: string; redirect: string }>();
 /** Lets a test make the provider misbehave. */
 const mischief = { nonce: null as string | null, audience: null as string | null };
+/** What the provider says about the person: extra ID token claims, and what its userinfo endpoint returns. */
+const person = {
+  claims: {} as Record<string, unknown>,
+  userinfo: null as Record<string, unknown> | null,
+};
 
 beforeAll(async () => {
   const pair = await generateKeyPair('RS256');
@@ -43,6 +48,7 @@ beforeAll(async () => {
         issuer,
         authorization_endpoint: `${issuer}/authorize`,
         token_endpoint: `${issuer}/token`,
+        userinfo_endpoint: `${issuer}/userinfo`,
         jwks_uri: `${issuer}/jwks`,
         response_types_supported: ['code'],
         subject_types_supported: ['public'],
@@ -51,6 +57,8 @@ beforeAll(async () => {
         code_challenge_methods_supported: ['S256'],
       });
     if (url.pathname === '/jwks') return json({ keys: [jwk] });
+    if (url.pathname === '/userinfo')
+      return json({ sub: 'sub-123', email: 'sally@example.com', ...person.userinfo });
     if (url.pathname === '/token' && request.method === 'POST') {
       let body = '';
       request.on('data', (chunk) => {
@@ -78,6 +86,7 @@ beforeAll(async () => {
           nonce: mischief.nonce ?? grant.nonce,
           email: 'sally@example.com',
           name: 'Sally Smith',
+          ...person.claims,
         })
           .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
           .setIssuer(issuer)
@@ -266,6 +275,117 @@ describe('single sign-on', () => {
       }));
   });
 
+  describe('groups', () => {
+    const rules = (admin: string[] = [], allowed: string[] = [], claim = 'groups') => ({
+      oidcGroups: { claim, allowed, admin },
+    });
+    afterEach(() => {
+      person.claims = {};
+      person.userinfo = null;
+    });
+    const roleOf = async (app: ReturnType<typeof appFor>, session: string | undefined) =>
+      (await (await app.request('/api/me', { headers: { Cookie: session ?? '' } })).json()).data
+        ?.user?.role;
+
+    it('lets in only members of an allowed group', async () => {
+      const app = appFor(rules([], ['pai-users']));
+      person.claims = { groups: ['someone-else'] };
+      expect((await complete(app)).location).toBe('/sign-in?error=not_allowed');
+      person.claims = { groups: ['team', 'pai-users'] };
+      const { session } = await complete(app);
+      expect(await roleOf(app, session)).toBe('user');
+    });
+
+    it('treats a person with no groups claim at all as in no group', async () => {
+      const app = appFor(rules([], ['pai-users']));
+      const done = await complete(app);
+      expect(done.location).toBe('/sign-in?error=not_allowed');
+      expect(done.session).toBeUndefined();
+    });
+
+    it('reads one group given as a string, and a nested claim', async () => {
+      person.claims = { groups: 'pai-users' };
+      expect((await complete(appFor(rules([], ['pai-users'])))).session).toBeTruthy();
+      person.claims = { realm_access: { roles: ['pai-users'] } };
+      expect(
+        (await complete(appFor(rules([], ['pai-users'], 'realm_access.roles')))).session,
+      ).toBeTruthy();
+    });
+
+    it('asks the userinfo endpoint when the ID token has no groups', async () => {
+      const app = appFor(rules([], ['pai-users']));
+      person.userinfo = { groups: ['pai-users'] };
+      expect((await complete(app)).session).toBeTruthy();
+    });
+
+    it('matches names exactly', async () => {
+      person.claims = { groups: ['PAI-Users'] };
+      expect((await complete(appFor(rules([], ['pai-users'])))).location).toBe(
+        '/sign-in?error=not_allowed',
+      );
+    });
+
+    it('makes a member of an admin group an administrator, who is also let in', async () => {
+      const app = appFor(rules(['pai-admins'], ['pai-users']));
+      person.claims = { groups: ['pai-admins'] };
+      const { session } = await complete(app);
+      expect(await roleOf(app, session)).toBe('admin');
+    });
+
+    it('ends the sessions a person already has when they lose the group', async () => {
+      const app = appFor(rules([], ['pai-users']));
+      person.claims = { groups: ['pai-users'] };
+      const { session } = await complete(app);
+      expect(await roleOf(app, session)).toBe('user');
+      person.claims = { groups: [] };
+      expect((await complete(app)).location).toBe('/sign-in?error=not_allowed');
+      expect(await roleOf(app, session)).toBeUndefined();
+    });
+
+    it('keeps the role by group on every sign-in, but never demotes the last administrator', async () => {
+      const app = appFor(rules(['pai-admins']));
+      person.claims = { groups: ['pai-admins'] };
+      expect(await roleOf(app, (await complete(app)).session)).toBe('admin');
+      // Removed from the group, but the only administrator: stays one (a lockout helps no one).
+      person.claims = { groups: [] };
+      expect(await roleOf(app, (await complete(app)).session)).toBe('admin');
+    });
+
+    it('refuses to change a role by hand when the provider decides it', async () => {
+      const app = appFor(rules(['pai-admins']));
+      person.claims = { groups: ['pai-admins'] };
+      const { session } = await complete(app);
+      const me = await (await app.request('/api/me', { headers: { Cookie: session! } })).json();
+      const csrf = me.data.csrfToken as string;
+      const response = await app.request(`/api/admin/people/${me.data.user.id}`, {
+        method: 'PATCH',
+        headers: {
+          Cookie: session!,
+          'content-type': 'application/json',
+          'X-CSRF-Token': csrf,
+          Origin: APP,
+        },
+        body: JSON.stringify({ role: 'user' }),
+      });
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe('role_managed');
+      const list = await (
+        await app.request('/api/admin/people', { headers: { Cookie: session! } })
+      ).json();
+      expect(list.data[0].roleManaged).toBe(true);
+    });
+
+    it('leaves roles alone when no admin group is set', async () => {
+      const app = appFor({ ...rules([], ['pai-users']), initialAdminEmail: 'sally@example.com' });
+      person.claims = { groups: ['pai-users'] };
+      const { session } = await complete(app);
+      const list = await (
+        await app.request('/api/admin/people', { headers: { Cookie: session! } })
+      ).json();
+      expect(list.data[0].roleManaged).toBe(false);
+    });
+  });
+
   it('is not offered when it is not configured', async () => {
     const app = appFor({ oidc: null, devAuth: true });
     expect((await app.request('/auth/login')).status).toBe(404);
@@ -362,5 +482,30 @@ describe('loadConfig', () => {
       }),
     ).toContain('Configure OIDC_*');
     expect(problems({ OIDC_CLIENT_SECRET: undefined })).toContain('go together');
+  });
+
+  it('reads the group lists, trimmed and without repeats, and needs single sign-on for them', () => {
+    const config = loadConfig({
+      ...good,
+      OIDC_ALLOWED_GROUPS: ' pai-users, pai-admins ,pai-users,',
+      OIDC_ADMIN_GROUPS: 'pai-admins',
+      OIDC_GROUPS_CLAIM: 'roles',
+    } as NodeJS.ProcessEnv);
+    expect(config.oidcGroups).toEqual({
+      claim: 'roles',
+      allowed: ['pai-users', 'pai-admins'],
+      admin: ['pai-admins'],
+    });
+    expect(loadConfig(good as NodeJS.ProcessEnv).oidcGroups).toBeNull();
+    expect(
+      problems({
+        OIDC_ISSUER: undefined,
+        OIDC_CLIENT_ID: undefined,
+        OIDC_CLIENT_SECRET: undefined,
+        DEV_AUTH: 'true',
+        APP_URL: 'http://localhost:5177',
+        OIDC_ALLOWED_GROUPS: 'x',
+      }),
+    ).toContain('need single sign-on');
   });
 });
