@@ -231,9 +231,16 @@ export function readThreadCache(userId: string, agentId: string): AgentThread[] 
   }
 }
 
+/** The cache only lets the sidebar draw at once while the real list loads, so it keeps the newest few. */
+export const THREAD_CACHE_LIMIT = 100;
+
 export function writeThreadCache(userId: string, agentId: string, threads: AgentThread[]) {
   try {
-    storage()?.setItem(`${THREADS}${userId}.${agentId}`, JSON.stringify(threads));
+    const newest =
+      threads.length > THREAD_CACHE_LIMIT
+        ? [...threads].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, THREAD_CACHE_LIMIT)
+        : threads;
+    storage()?.setItem(`${THREADS}${userId}.${agentId}`, JSON.stringify(newest));
   } catch {
     // Storage full or blocked: the list is simply fetched again next time.
   }

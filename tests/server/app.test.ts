@@ -263,6 +263,50 @@ describe('agent ownership', () => {
   });
 });
 
+describe('compression', () => {
+  it('gzips JSON for a browser that accepts it, and the body is the same once unzipped', async () => {
+    const { cookie } = await signIn('tim');
+    const long = Array.from({ length: 400 }, (_, i) => ({
+      threadId: `t${i}`,
+      title: `Conversation ${i}`,
+    }));
+    platform.fetch = async () => Response.json({ data: long });
+    const [agent] = (
+      await (await app.request('/api/agents', { headers: { Cookie: cookie } })).json()
+    ).data;
+    const plain = await app.request(`/api/agents/${agent.id}/threads`, {
+      headers: { Cookie: cookie },
+    });
+    const zipped = await app.request(`/api/agents/${agent.id}/threads`, {
+      headers: { Cookie: cookie, 'Accept-Encoding': 'gzip' },
+    });
+    expect(plain.headers.get('content-encoding')).toBeNull();
+    expect(zipped.headers.get('content-encoding')).toBe('gzip');
+    const text = await plain.text();
+    const raw = new Uint8Array(await zipped.arrayBuffer());
+    expect(raw.length).toBeLessThan(text.length / 3);
+    // `app.request` hands back the encoded bytes; the browser unzips them.
+    const back = await new Response(
+      new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip')),
+    ).text();
+    expect(back).toBe(text);
+  });
+
+  it('leaves event streams alone, so they are not held back to be compressed', async () => {
+    const { cookie } = await signIn('tim');
+    const response = await app.request('/api/events', {
+      headers: { Cookie: cookie, 'Accept-Encoding': 'gzip' },
+    });
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    expect(response.headers.get('content-encoding')).toBeNull();
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(
+      'event: ready\ndata: {}\n\n',
+    );
+    await reader.cancel();
+  });
+});
+
 describe('optional features and usage', () => {
   // Tim is the instance's first administrator.
   const withAdmin = { ...config, initialAdminEmail: 'tim@example.test' };

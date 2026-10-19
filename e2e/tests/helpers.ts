@@ -114,3 +114,26 @@ export async function setTheme(page: Page, theme: 'light' | 'dark') {
   });
   if (!done.ok()) throw new Error(`could not save the appearance: ${done.status()}`);
 }
+
+/** Gives a person's agent many conversations (the fake platform's /__demo/bulk), as a long-time user would have. */
+export async function addConversations(page: Page, email: string, count: number) {
+  const agents = await (await page.request.get('/api/agents')).json();
+  const agentId = agents.data[0].id as string;
+  const done = await fetch(`${FAKE}/__demo/bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, count, agentId }),
+  });
+  if (!done.ok) throw new Error(`could not add conversations: ${done.status}`);
+  return agentId;
+}
+
+/** Writes the person's saved inbox from thread keys: `{ [agentId/threadId]: meta }`. */
+export async function saveInbox(page: Page, threads: Record<string, Record<string, number>>) {
+  const me = await (await page.request.get('/api/me')).json();
+  const done = await page.request.put('/api/me/prefs/inbox', {
+    headers: { 'X-CSRF-Token': me.data.csrfToken },
+    data: { value: { v: 1, threads, since: Date.now() - 30 * DAY } },
+  });
+  if (!done.ok()) throw new Error(`could not save the inbox: ${done.status()}`);
+}

@@ -1,4 +1,5 @@
 import { type Context, Hono, type MiddlewareHandler } from 'hono';
+import { compress } from 'hono/compress';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
@@ -156,6 +157,9 @@ export function createApp(
   const features = async () => resolveFeatures(await store.setting('features'), disabledFeatures);
   const feature = async (id: FeatureId) => (await features())[id];
   const app = new Hono<Env>();
+  // Text and JSON go out gzipped to browsers that accept it (the app's scripts, and a long conversation list). Event
+  // streams are left alone: Hono's compression skips text/event-stream.
+  app.use('*', compress());
   // What was asked and how long it took, by the route's pattern (never the path: it holds IDs).
   app.use('*', async (c, next) => {
     const started = performance.now();

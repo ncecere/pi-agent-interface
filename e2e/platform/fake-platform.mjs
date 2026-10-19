@@ -576,6 +576,34 @@ async function route(req, res) {
             });
       return json(res, { anchor, threads: out });
     }
+    if (path === '/__demo/bulk' && method === 'POST') {
+      // Many conversations at once, for a person who has used the app for a long time: { email, count, agentId? }.
+      // Each has a title like "Conversation 0042: quarterly planning notes", is older the higher its number, and has a short reply.
+      const body = parseJson(await readBody(req));
+      const owner = body.email;
+      const count = Math.min(Number(body.count) || 0, 20000);
+      const target = (body.agentId && agents.get(body.agentId)) || [...agents.values()].find(
+        (a) => (!body.agentName || a.name.split(' · ')[0] === body.agentName) && threads.get(a.id) && [...threads.get(a.id).values()].some((t) => t.owner === owner),
+      );
+      if (!target) return fail(res, 404, 'not_found', 'no agent with conversations for that person');
+      const topics = ['quarterly planning notes', 'expense policy question', 'release checklist', 'draft the all-hands update', 'summarise the incident review', 'travel plan', 'onboarding questions', 'budget variance'];
+      for (let i = 0; i < count; i++) {
+        const id = `t-bulk-${String(i).padStart(5, '0')}`;
+        if (threads.get(target.id).has(id)) continue;
+        addThread(target, owner, {
+          threadId: id,
+          title: `Conversation ${String(i).padStart(4, '0')}: ${topics[i % topics.length]}`,
+          createdAge: (i + 3) * 20 * MIN,
+          updatedAge: (i + 3) * 20 * MIN,
+          replyAge: (i + 3) * 20 * MIN - MIN,
+          messages: [
+            { id: 'e1', role: 'user', text: `Question ${i}`, at: anchor - (i + 3) * 20 * MIN },
+            { id: 'e2', role: 'assistant', text: `Answer ${i}`, at: anchor - (i + 3) * 20 * MIN + MIN, model: { provider: 'example', id: 'chat-model' }, stopReason: 'stop' },
+          ],
+        });
+      }
+      return json(res, { agentId: target.id, threads: threads.get(target.id).size });
+    }
     if (path === '/__demo/thread' && method === 'POST') {
       // Change a thread: { agentId, threadId, busy?, title? }
       const body = parseJson(await readBody(req));

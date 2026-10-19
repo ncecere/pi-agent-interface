@@ -16,6 +16,7 @@ import { useDeleteThread } from '~/hooks/use-agents';
 import { useInbox, useInboxActions } from '~/hooks/use-inbox';
 import { usePageTitle } from '~/lib/document-title';
 import type { InboxEntry } from '~/lib/inbox';
+import { nextPage, PAGE_SIZE } from '~/lib/paging';
 
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 
@@ -45,6 +46,9 @@ function Group({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState<InboxEntry[] | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const shown = entries.slice(0, limit);
+  const hidden = entries.length - shown.length;
   const chosen = entries.filter((entry) => selected.has(entry.key));
   const all = entries.length > 0 && chosen.length === entries.length;
   const multipleAgents = new Set(entries.map((entry) => entry.agentId)).size > 1;
@@ -115,7 +119,7 @@ function Group({
             )}
           </div>
           <ul>
-            {entries.map((entry) => {
+            {shown.map((entry) => {
               const date = dateOf(entry);
               return (
                 <li
@@ -168,6 +172,18 @@ function Group({
               );
             })}
           </ul>
+          {hidden > 0 && (
+            <div className="border-t border-[var(--border-subtle)] px-4 py-2.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLimit((current) => current + PAGE_SIZE)}
+              >
+                Show {nextPage(hidden)} more
+                <span className="text-[var(--text-muted)]">· {hidden} not shown</span>
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -209,6 +225,11 @@ export function SettingsConversationsPage() {
   const actions = useInboxActions();
   const names = new Map(inbox.agents.map((agent) => [agent.id, agent.name]));
   const agentName = (id: string) => names.get(id);
+  const [filter, setFilter] = useState('');
+  const query = filter.trim().toLowerCase();
+  const matching = (entries: InboxEntry[]) =>
+    query ? entries.filter((entry) => entry.title.toLowerCase().includes(query)) : entries;
+  const long = inbox.sections.archived.length + inbox.sections.done.length > PAGE_SIZE;
 
   if (inbox.loading)
     return (
@@ -219,10 +240,20 @@ export function SettingsConversationsPage() {
 
   return (
     <>
+      {long && (
+        <input
+          type="search"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          placeholder="Search these by title"
+          aria-label="Search archived and settled conversations"
+          className="mb-2 h-10 w-full max-w-sm rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-control)] px-3 text-sm placeholder:text-[var(--text-muted)]"
+        />
+      )}
       <Group
         title="Archived"
         empty="Nothing archived. Archive a conversation from its menu in the sidebar to put it away here."
-        entries={inbox.sections.archived}
+        entries={matching(inbox.sections.archived)}
         agentName={agentName}
         dateOf={(entry) => entry.meta.archivedAt}
         restoreLabel="Restore"
@@ -231,7 +262,7 @@ export function SettingsConversationsPage() {
       <Group
         title="Settled"
         empty="Nothing settled. Settle a conversation from the sidebar when you're finished with it."
-        entries={inbox.sections.done}
+        entries={matching(inbox.sections.done)}
         agentName={agentName}
         dateOf={(entry) => entry.meta.settledAt}
         restoreLabel="Move to inbox"

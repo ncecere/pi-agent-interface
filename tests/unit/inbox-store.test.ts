@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { inboxActionsFor } from '../../src/hooks/use-inbox';
-import { InboxStore } from '../../src/lib/inbox-store';
+import {
+  InboxStore,
+  readThreadCache,
+  THREAD_CACHE_LIMIT,
+  writeThreadCache,
+} from '../../src/lib/inbox-store';
 
 /** A Storage that lives in memory, so two stores can share one "browser". */
 function memory(): Storage {
@@ -191,5 +196,33 @@ describe('when the inbox began', () => {
     expect(first.merge({}, undefined)).toBe(true);
     expect(first.merge({}, since + 5000)).toBe(true);
     expect(first.since).toBe(since - 1000);
+  });
+});
+
+describe('the thread list kept for next time', () => {
+  const thread = (i: number) =>
+    ({
+      threadId: `t${i}`,
+      title: `T ${i}`,
+      createdAt: i,
+      updatedAt: i,
+      busy: false,
+      visibility: 'private',
+      participants: [],
+    }) as unknown as Parameters<typeof writeThreadCache>[2][number];
+
+  beforeEach(() => localStorage.clear());
+
+  it('keeps a short list whole, and the newest of a long one (it only lets the sidebar draw at once)', () => {
+    writeThreadCache('u', 'a', [thread(1), thread(2)]);
+    expect(readThreadCache('u', 'a')?.map((t) => t.threadId)).toEqual(['t1', 't2']);
+
+    const many = Array.from({ length: 1000 }, (_, i) => thread(i));
+    writeThreadCache('u', 'b', many);
+    const kept = readThreadCache('u', 'b') ?? [];
+    expect(kept).toHaveLength(THREAD_CACHE_LIMIT);
+    expect(kept[0]?.threadId).toBe('t999');
+    expect(kept.at(-1)?.threadId).toBe(`t${1000 - THREAD_CACHE_LIMIT}`);
+    expect(many).toHaveLength(1000); // the list given is not changed
   });
 });

@@ -57,6 +57,7 @@ import {
   untilLabel,
 } from '~/lib/inbox';
 import { matchInboxShortcut } from '~/lib/inbox-shortcuts';
+import { nextPage, PAGE_SIZE, visibleOf } from '~/lib/paging';
 import { cn } from '~/lib/utils';
 
 /** Which shelves are open, remembered in this browser. They start closed. */
@@ -242,9 +243,13 @@ export function SidebarInbox({ filter }: { filter: string }) {
   };
   const list = (entries: InboxEntry[], label: string) =>
     entries.length > 0 && (
-      <ul aria-label={label} className="flex flex-col gap-px">
-        {entries.map(row)}
-      </ul>
+      <PagedList
+        entries={entries}
+        label={label}
+        openKey={openKey}
+        resetKey={`${query}|${agentFilter ?? ''}`}
+        row={row}
+      />
     );
 
   return (
@@ -303,18 +308,68 @@ export function SidebarInbox({ filter }: { filter: string }) {
           label="Snoozed"
           entries={sections.snoozed}
           openKey={openKey}
+          forceOpen={query !== ''}
           render={list}
         />
-        <Shelf id="done" label="Settled" entries={sections.done} openKey={openKey} render={list} />
+        <Shelf
+          id="done"
+          label="Settled"
+          entries={sections.done}
+          openKey={openKey}
+          forceOpen={query !== ''}
+          render={list}
+        />
         <Shelf
           id="archived"
           label="Archived"
           entries={sections.archived}
           openKey={openKey}
+          forceOpen={query !== ''}
           render={list}
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * A list drawn a page at a time (lib/paging.ts). The open conversation stays drawn wherever it is in the
+ * list, and starting a search or choosing another agent starts again from the first page.
+ */
+function PagedList({
+  entries,
+  label,
+  openKey,
+  resetKey,
+  row,
+}: {
+  entries: InboxEntry[];
+  label: string;
+  openKey: string | null;
+  resetKey: string;
+  row: (entry: InboxEntry) => ReactNode;
+}) {
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new search or agent starts from the first page
+  useEffect(() => setLimit(PAGE_SIZE), [resetKey]);
+  const shown = visibleOf(entries, limit, openKey);
+  const hidden = entries.length - shown.length;
+  return (
+    <>
+      <ul aria-label={label} className="flex flex-col gap-px">
+        {shown.map(row)}
+      </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setLimit((current) => current + PAGE_SIZE)}
+          className="mt-0.5 flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-row-hover)] hover:text-[var(--text-primary)]"
+        >
+          Show {nextPage(hidden)} more
+          <span className="text-[var(--text-muted)]">· {hidden} not shown</span>
+        </button>
+      )}
+    </>
   );
 }
 
@@ -377,15 +432,19 @@ function Shelf({
   label,
   entries,
   openKey,
+  forceOpen = false,
   render,
 }: {
   id: string;
   label: string;
   entries: InboxEntry[];
   openKey: string | null;
+  /** A search is under way: what it found is shown, not hidden behind a closed shelf. */
+  forceOpen?: boolean;
   render: (entries: InboxEntry[], label: string) => ReactNode;
 }) {
-  const [open, setOpen] = useShelf(id);
+  const [chosen, setOpen] = useShelf(id);
+  const open = chosen || forceOpen;
   if (entries.length === 0) return null;
   const current = entries.filter((entry) => entry.key === openKey);
   const panel = `inbox-shelf-${id}`;
