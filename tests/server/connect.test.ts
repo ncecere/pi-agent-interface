@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Connect, ConnectError, NotConnected } from '../../server/connect.ts';
+import { Metrics } from '../../server/metrics.ts';
 import { MemoryStore } from '../../server/store.ts';
 
 const PLATFORM = 'https://agents.example.com';
@@ -96,12 +97,13 @@ function fakePlatform() {
 
 let store: MemoryStore;
 let platform: ReturnType<typeof fakePlatform>;
-const connectAt = (appUrl: string) =>
+const connectAt = (appUrl: string, metrics?: Metrics) =>
   new Connect(
     { appUrl: new URL(appUrl), platformUrl: new URL(PLATFORM), sessionSecret: 'x'.repeat(40) },
     store,
     async () => 'Pi Agent Interface',
     platform.fetch,
+    metrics,
   );
 
 beforeEach(async () => {
@@ -217,6 +219,25 @@ describe('Connect', () => {
     await expect(connect.fetchAs('tim', '/v1/agents')).rejects.toBeInstanceOf(NotConnected);
     expect(await store.connection('tim')).toBeNull();
     await expect(connect.accessToken('tim')).rejects.toBeInstanceOf(NotConnected);
+  });
+
+  it('counts its calls to the platform, and how its token refreshes ended', async () => {
+    const metrics = new Metrics();
+    const connect = connectAt('https://chat.example.com', metrics);
+    await connected(connect, 'tim');
+    expect((await connect.fetchAs('tim', '/v1/agents')).status).toBe(200);
+    const row = (await store.connection('tim'))!;
+    await store.saveConnection('tim', { ...row, accessExpiresAt: new Date(Date.now() - 1000) });
+    await connect.fetchAs('tim', '/v1/agents'); // refreshes first
+    platform.accessTokens.clear();
+    platform.refreshTokens.clear();
+    await expect(connect.fetchAs('tim', '/v1/agents')).rejects.toBeInstanceOf(NotConnected);
+    await expect(connect.fetchAs('tim', '/v1/agents')).rejects.toBeInstanceOf(NotConnected);
+    const text = await metrics.render();
+    expect(text).toContain('pai_platform_requests_total{outcome="ok"} 2');
+    expect(text).toContain('pai_platform_requests_total{outcome="not_connected"} 2');
+    expect(text).toContain('pai_connect_token_refreshes_total{outcome="ok"} 1');
+    expect(text).toContain('pai_connect_token_refreshes_total{outcome="ended"} 1');
   });
 
   it('revokes the refresh token on disconnect', async () => {

@@ -1,0 +1,23 @@
+# Lets Prometheus reach the metrics port. Patch the namespace to where your Prometheus runs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pi-agent-interface-metrics
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pi-agent-interface
+      app.kubernetes.io/component: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9464

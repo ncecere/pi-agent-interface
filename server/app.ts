@@ -1,6 +1,7 @@
 import { type Context, Hono, type MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
+import { matchedRoutes } from 'hono/route';
 import * as oidc from 'openid-client';
 import {
   type AgentSettings,
@@ -26,6 +27,7 @@ import {
   resolveFeatures,
 } from './features.ts';
 import { decide, groupsFrom } from './groups.ts';
+import { Metrics } from './metrics.ts';
 import { ownsAgent, Platform, type PlatformAgent, PlatformError } from './platform.ts';
 import {
   type LoginState,
@@ -117,17 +119,25 @@ export function safeNext(value: string | undefined | null): string {
 
 export function createApp(
   config: Config,
-  deps: { store: Store; platform?: Platform; events?: EventsHub; connect?: Connect },
+  deps: {
+    store: Store;
+    platform?: Platform;
+    events?: EventsHub;
+    connect?: Connect;
+    metrics?: Metrics;
+  },
 ) {
   const { store } = deps;
   const devAccounts = config.devAccounts ?? DEV_ACCOUNTS;
-  const platform = deps.platform ?? new Platform(config);
+  const metrics = deps.metrics ?? new Metrics();
+  const platform = deps.platform ?? new Platform(config, (outcome) => metrics.platform(outcome));
   const events = deps.events ?? new EventsHub(platform);
   /** Connect mode: people's own platform accounts (connect.ts). Otherwise the team service account. */
   const connectMode =
     (config.platformAuth ?? (config.platformServiceKey ? 'service' : 'connect')) === 'connect';
   const connect = connectMode
-    ? (deps.connect ?? new Connect(config, store, async () => (await branding()).name))
+    ? (deps.connect ??
+      new Connect(config, store, async () => (await branding()).name, fetch, metrics))
     : null;
   /** Why a feature can't be turned on here, if it can't. */
   const lockedReasons = new Map<string, string>(
@@ -146,6 +156,24 @@ export function createApp(
   const features = async () => resolveFeatures(await store.setting('features'), disabledFeatures);
   const feature = async (id: FeatureId) => (await features())[id];
   const app = new Hono<Env>();
+  // What was asked and how long it took, by the route's pattern (never the path: it holds IDs).
+  app.use('*', async (c, next) => {
+    const started = performance.now();
+    try {
+      await next();
+    } finally {
+      // The handler's own pattern: the last matched route that is not a wildcard (middleware, the not-found catch-all).
+      const pattern = [...matchedRoutes(c)]
+        .reverse()
+        .find((route) => !route.path.includes('*'))?.path;
+      metrics.http(
+        c.req.method,
+        pattern ?? 'other',
+        c.res.status,
+        (performance.now() - started) / 1000,
+      );
+    }
+  });
   const secure = config.appUrl.protocol === 'https:';
   const sessionCookie = secure ? '__Host-pai_session' : 'pai_session';
   const loginCookie = secure ? '__Host-pai_login' : 'pai_login';
@@ -284,6 +312,19 @@ export function createApp(
   /** For a container's or a load balancer's health check: the server is up (it does not call the platform). */
   app.get('/healthz', (c) => c.json({ ok: true }));
 
+  metrics.gauge(
+    'pai_database_up',
+    'Whether the database answered when scraped (1) or not (0).',
+    async () => {
+      try {
+        await store.person('readyz');
+        return 1;
+      } catch {
+        return 0;
+      }
+    },
+  );
+
   /** Ready for traffic: the database answers. */
   app.get('/readyz', async (c) => {
     try {
@@ -390,8 +431,11 @@ export function createApp(
       { id: userIdFor('dev', account.id), name: account.name, email: account.email },
       config.initialAdminEmail,
     );
-    if (person.status === 'suspended')
+    if (person.status === 'suspended') {
+      metrics.signIn('suspended');
       return fail(c, 403, 'suspended', 'Your account is suspended. Ask an administrator.');
+    }
+    metrics.signIn('ok');
     startSession(c, person);
     return c.json({ data: { ok: true } });
   });
@@ -429,7 +473,10 @@ export function createApp(
     if (!config.oidc) return fail(c, 404, 'not_found', 'Single sign-on is not configured');
     const login = logins.open<LoginState>(getCookie(c, loginCookie));
     deleteCookie(c, loginCookie, { path: '/', secure });
-    if (!login || login.expiresAt < now()) return c.redirect('/sign-in?error=expired');
+    if (!login || login.expiresAt < now()) {
+      metrics.signIn('expired');
+      return c.redirect('/sign-in?error=expired');
+    }
     try {
       const client = await oidcClient();
       // The address the provider redirected to, as people reach this app.
@@ -471,6 +518,7 @@ export function createApp(
             forget(id);
           }
           console.warn(`[auth] ${email || claims.sub} is not in an allowed group`);
+          metrics.signIn('not_allowed');
           return c.redirect('/sign-in?error=not_allowed');
         }
         adminByGroup = decision.admin;
@@ -480,11 +528,16 @@ export function createApp(
         config.initialAdminEmail,
         adminByGroup,
       );
-      if (person.status === 'suspended') return c.redirect('/sign-in?error=suspended');
+      if (person.status === 'suspended') {
+        metrics.signIn('suspended');
+        return c.redirect('/sign-in?error=suspended');
+      }
+      metrics.signIn('ok');
       startSession(c, person);
       return c.redirect(login.next);
     } catch (error) {
       console.error('[auth] sign-in failed', error);
+      metrics.signIn('failed');
       return c.redirect('/sign-in?error=failed');
     }
   });
@@ -1286,6 +1339,14 @@ export function createApp(
     relay(c, threadPath(c, '/stop'), { method: 'POST' }),
   );
   const streams = new Map<string, number>();
+  metrics.gauge(
+    'pai_open_streams',
+    "Streams open now: a conversation being watched, or a person's live events.",
+    () => [
+      { labels: { kind: 'conversation' }, value: [...streams.values()].reduce((a, b) => a + b, 0) },
+      { labels: { kind: 'events' }, value: [...eventStreams.values()].reduce((a, b) => a + b, 0) },
+    ],
+  );
   app.get('/api/agents/:agentId/threads/:threadId/events', async (c) => {
     const path = threadPath(c, '/events');
     const userId = c.get('session').user.id;

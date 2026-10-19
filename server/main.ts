@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './app.ts';
 import { loadConfig, loadEnvFiles } from './config.ts';
 import { resealConnections } from './connect.ts';
+import { Metrics } from './metrics.ts';
 import { migrate, PgStore, waitForDatabase } from './store-pg.ts';
 
 loadEnvFiles();
@@ -23,7 +25,13 @@ if (config.sessionSecretPrevious?.length) {
         : '; the previous secret is no longer needed for them'),
   );
 }
-const app = createApp(config, { store });
+const version = (
+  JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    version?: string;
+  }
+).version;
+const metrics = new Metrics(version);
+const app = createApp(config, { store, metrics });
 
 // Production: the built web app, with every other path answered by index.html
 // (the router decides). In development Vite serves it and proxies here.
@@ -52,9 +60,29 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.hos
   );
 });
 
+// Metrics, on a port of their own (so exposing the app does not expose them).
+const metricsServer = config.metrics
+  ? createServer(async (request, response) => {
+      if (request.method !== 'GET' || request.url?.split('?')[0] !== '/metrics') {
+        response.writeHead(404).end();
+        return;
+      }
+      response
+        .writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' })
+        .end(await metrics.render());
+    })
+  : null;
+if (config.metrics && metricsServer)
+  metricsServer.listen(config.metrics.port, config.metrics.host, () =>
+    console.log(
+      `[server] metrics on http://${config.metrics?.host}:${config.metrics?.port}/metrics`,
+    ),
+  );
+
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
   process.on(signal, () =>
     server.close(() => {
+      metricsServer?.close();
       void store.close().finally(() => process.exit(0));
     }),
   );

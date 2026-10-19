@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Config } from './config.ts';
+import { type Metrics, outcomeOfStatus } from './metrics.ts';
 import { Sealer, secretsOf, token } from './session.ts';
 import type { PlatformConnection, Store } from './store.ts';
 
@@ -91,6 +92,7 @@ export class Connect {
     /** The app's name, for the platform's approval screen and Connected apps. */
     private readonly appName: () => Promise<string>,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly metrics?: Pick<Metrics, 'platform' | 'refresh'>,
   ) {
     this.tokens = new Sealer(secretsOf(config), 'platform-tokens');
     this.pending = new Sealer(secretsOf(config), 'connect-pending');
@@ -376,6 +378,7 @@ export class Connect {
         return now;
       const refresh = this.tokens.open<string>(locked.refreshToken);
       if (!refresh) {
+        this.metrics?.refresh('ended');
         await this.store.removeConnection(personId);
         throw new NotConnected();
       }
@@ -384,16 +387,22 @@ export class Connect {
         grant_type: 'refresh_token',
         refresh_token: refresh,
         client_id: await this.clientId(),
+      }).catch((error) => {
+        this.metrics?.refresh('error');
+        throw error;
       });
       if ('error' in reply) {
         if (reply.error === 'invalid_grant' || reply.error === 'invalid_client') {
+          this.metrics?.refresh('ended');
           if (reply.error === 'invalid_client') await this.forgetClient();
           await this.store.removeConnection(personId);
           throw new NotConnected('Your connection to the agent platform ended. Connect again.');
         }
+        this.metrics?.refresh('error');
         throw new ConnectError(reply.error, reply.description);
       }
       await this.save(personId, reply, null, locked);
+      this.metrics?.refresh('ok');
       return reply.access_token;
     });
   }
@@ -403,6 +412,17 @@ export class Connect {
    * again; a second 401 means the connection is gone.
    */
   async fetchAs(personId: string, path: string, init: RequestInit = {}): Promise<Response> {
+    try {
+      const response = await this.fetchAsOnce(personId, path, init);
+      this.metrics?.platform(outcomeOfStatus(response.status));
+      return response;
+    } catch (error) {
+      this.metrics?.platform(error instanceof NotConnected ? 'not_connected' : 'network_error');
+      throw error;
+    }
+  }
+
+  private async fetchAsOnce(personId: string, path: string, init: RequestInit): Promise<Response> {
     const send = (accessToken: string) => {
       const headers = new Headers(init.headers);
       headers.set('Authorization', `Bearer ${accessToken}`);

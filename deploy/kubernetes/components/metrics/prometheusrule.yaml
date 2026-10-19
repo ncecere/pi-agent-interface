@@ -1,0 +1,73 @@
+# Starting alerts. Thresholds are guesses for a small deployment: tune them to yours. Each says what to look at.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pi-agent-interface
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  groups:
+    - name: pi-agent-interface
+      rules:
+        - alert: PiAgentInterfaceDown
+          expr: absent(pai_build_info)
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: Pi Agent Interface is not reporting metrics.
+            description: No pod has answered a scrape for 5 minutes. Check the Deployment and the ServiceMonitor.
+        - alert: PiAgentInterfaceDatabaseDown
+          expr: min(pai_database_up) == 0
+          for: 2m
+          labels: {severity: critical}
+          annotations:
+            summary: Pi Agent Interface cannot reach its database.
+            description: A pod's database check has failed for 2 minutes; nobody can sign in or chat. Look at the database and the DATABASE_URL secret.
+        - alert: PiAgentInterfaceServerErrors
+          expr: |
+            sum(rate(pai_http_requests_total{status=~"5.."}[10m]))
+              / sum(rate(pai_http_requests_total[10m])) > 0.05
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: More than 5 % of requests end in a server error.
+            description: Look at the app's logs, and at the platform and the database.
+        - alert: PiAgentInterfacePlatformErrors
+          expr: |
+            sum(rate(pai_platform_requests_total{outcome=~"server_error|network_error"}[10m]))
+              / sum(rate(pai_platform_requests_total[10m])) > 0.2
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: Calls to the agent platform are failing.
+            description: More than 20 % of calls to the platform end in a server or network error. Check the platform, and the network between.
+        - alert: PiAgentInterfaceConnectionsEnding
+          expr: sum(increase(pai_connect_token_refreshes_total{outcome="ended"}[1h])) > 10
+          for: 0m
+          labels: {severity: warning}
+          annotations:
+            summary: Many people's platform connections ended in the last hour.
+            description: The platform ended them (revoked, or the app was removed from Trusted apps, or its client was forgotten). People must connect again.
+        - alert: PiAgentInterfaceSignInFailures
+          expr: sum(increase(pai_sign_ins_total{outcome="failed"}[15m])) > 10
+          for: 0m
+          labels: {severity: warning}
+          annotations:
+            summary: Sign-ins are failing.
+            description: The identity provider is refusing or misbehaving. Look for "[auth] sign-in failed" in the logs.
+        - alert: PiAgentInterfaceSlow
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(pai_http_request_duration_seconds_bucket[10m]))) > 5
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: The slowest 5 % of requests take over 5 seconds to begin answering.
+            description: Check the database and the platform.
+        - alert: PiAgentInterfaceEventLoopLag
+          expr: max(nodejs_eventloop_lag_p99_seconds) > 0.5
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: A pod's event loop is falling behind.
+            description: CPU is the likely limit. Raise the pod's CPU request, or add replicas.

@@ -1,0 +1,19 @@
+# The metrics port, on a Service of its own so the app's public Service (and an ingress for it) never carries it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pi-agent-interface-metrics
+  labels:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: pi-agent-interface
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pi-agent-interface
+    app.kubernetes.io/component: server
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP

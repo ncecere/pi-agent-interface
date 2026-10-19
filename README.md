@@ -75,12 +75,33 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `OIDC_GROUPS_CLAIM` | Where the provider lists a person's groups: the claim's name (default `groups`), or a dotted path for a nested one (`realm_access.roles`). Looked for in the ID token, then at the userinfo endpoint. Names are matched exactly. The provider must release it: with authentik the default `profile` scope does; with others add the scope in `OIDC_SCOPES`. |
 | `DEV_AUTH` | `true` enables the development accounts tim, bob and sally. Refused unless `APP_URL` is loopback. |
 | `DEV_ACCOUNTS` | With `DEV_AUTH=true`: the development accounts to offer instead of tim, bob and sally, as a JSON array of `{"id", "name", "email"}` (ids unique: letters, digits, dots, dashes, underscores). Ignored while `DEV_AUTH` is off. |
+| `METRICS_ENABLED` | `true` serves Prometheus metrics on a port of their own (below). Off by default. |
+| `METRICS_PORT`, `METRICS_HOST` | Where the metrics listen: default `0.0.0.0:9464`. Never the app's own port, so exposing the app does not expose them; do not publish this port outside your cluster or monitoring network. |
 | `HOST`, `PORT` | Where to listen (default `127.0.0.1:5178`; the container uses `0.0.0.0:8080`). |
 | `SESSION_TTL_HOURS` | Default 168. |
 | `DISABLED_FEATURES` | Optional features to turn off for good, comma-separated (e.g. `usage`). See below. |
 
 The server refuses to start, naming every problem, if the configuration is incomplete or unsafe: a platform or
 provider that is not https (outside localhost), development accounts on a public address, a short session secret.
+
+### Metrics
+
+With `METRICS_ENABLED=true` the app answers `GET /metrics` (Prometheus text format) on `METRICS_PORT`, separate from the
+app's own port. Labels are route patterns and outcomes, never a person, an ID or a path.
+
+| Metric | What |
+| --- | --- |
+| `pai_http_requests_total{method,route,status}`, `pai_http_request_duration_seconds{method,route}` | Requests and how long until the response begins (a stream goes on after that). |
+| `pai_platform_requests_total{outcome}` | Calls to the agent platform: `ok`, `client_error`, `server_error`, `network_error`, `not_connected`. |
+| `pai_connect_token_refreshes_total{outcome}` | Refreshes of people's platform tokens: `ok`, `ended` (the platform ended the connection), `error`. |
+| `pai_sign_ins_total{outcome}` | `ok`, `suspended`, `not_allowed`, `failed`, `expired`. |
+| `pai_open_streams{kind}` | Conversation streams and live-event streams open now. |
+| `pai_database_up` | 1 when the database answered at the scrape. |
+| `pai_build_info{version}`, `process_*`, `nodejs_*` | Version, CPU, memory, event-loop lag. |
+
+On Kubernetes, `deploy/kubernetes/components/metrics` turns this on and adds a Service, a ServiceMonitor, a NetworkPolicy
+for Prometheus and eight example alerts (the database down, server errors, platform errors, connections ending, failed
+sign-ins, slow requests, event-loop lag).
 
 ### Rotating `SESSION_SECRET`
 

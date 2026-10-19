@@ -1,4 +1,5 @@
 import type { Config } from './config.ts';
+import { outcomeOfStatus, type PlatformOutcome } from './metrics.ts';
 import type { User } from './session.ts';
 import type { PlatformUsageRow } from './usage.ts';
 
@@ -74,7 +75,11 @@ export class Platform {
   /** Said once per process, not on every request. */
   private warnedModel = false;
 
-  constructor(private readonly config: Config) {}
+  constructor(
+    private readonly config: Config,
+    /** Told how each call ended (metrics). */
+    private readonly onCall: (outcome: PlatformOutcome) => void = () => undefined,
+  ) {}
 
   /** A request to the platform with the service key. Bodies and errors are passed on as they are. */
   fetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -82,7 +87,20 @@ export class Platform {
     headers.set('Authorization', `Bearer ${this.config.platformServiceKey}`);
     if (init.body !== undefined && !headers.has('Content-Type'))
       headers.set('Content-Type', 'application/json');
-    return fetch(new URL(path, this.config.platformUrl), { ...init, headers, redirect: 'manual' });
+    return fetch(new URL(path, this.config.platformUrl), {
+      ...init,
+      headers,
+      redirect: 'manual',
+    }).then(
+      (response) => {
+        this.onCall(outcomeOfStatus(response.status));
+        return response;
+      },
+      (error) => {
+        this.onCall('network_error');
+        throw error;
+      },
+    );
   }
 
   private async json<T>(path: string, init?: RequestInit): Promise<T> {

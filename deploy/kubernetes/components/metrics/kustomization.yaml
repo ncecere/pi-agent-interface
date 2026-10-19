@@ -1,0 +1,41 @@
+# Metrics for Pi Agent Interface (optional): turns on the app's /metrics endpoint on its own port (9464, never the
+# public one), a Service for it, a ServiceMonitor and PrometheusRule for the Prometheus Operator, and lets Prometheus
+# reach the port through the base's NetworkPolicies. Use it from your overlay:
+#
+#   components:
+#     - ../../components/metrics      # path from your overlay to this directory
+#
+# Needs the Prometheus Operator's CRDs (ServiceMonitor, PrometheusRule). Without the Operator, use only the patch and
+# the Service, and point your scrape config at <service>:metrics.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - service.yaml
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+  - networkpolicy.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: pi-agent-interface
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: pi-agent-interface
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                env:
+                  - name: METRICS_ENABLED
+                    value: "true"
+                  - name: METRICS_PORT
+                    value: "9464"
+                ports:
+                  - name: metrics
+                    containerPort: 9464
+                    protocol: TCP

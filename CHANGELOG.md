@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Prometheus metrics** (optional, `METRICS_ENABLED=true`): requests by route and status with latency, calls to the platform by outcome, platform-token refreshes, sign-ins by outcome, open streams, database reachability, and the usual process figures, on a port of their own (`METRICS_PORT`, default 9464) so exposing the app doesn't expose them. `deploy/kubernetes/components/metrics` adds a Service, ServiceMonitor, NetworkPolicy and eight example alerts (checked with promtool).
 - **Accessibility audit.** Automated checks (axe) now run in CI on the main pages in both themes and every accent. Fixed what they found: the Failed and Working statuses and the muted text on the open conversation's row were too faint to read (the light theme's red and blue are darker, the dark theme's muted text a little lighter); the Default model selector in Admin → Agents had no name for screen readers; the user-menu button on a phone didn't start its name with the initials it shows; and the emerald accent's dark-theme buttons (white on 3.3:1) are now darker. Keyboard focus and reduced motion are tested too. What isn't checked is listed in the README.
 - **Browser tests in CI** (`pnpm e2e`): sign-in, chat with a streamed reply, the inbox (including the status-over-actions layout fixed in 0.3.1, on desktop and touch), administration access and the Connect flow, against a fake platform. Not part of the shipped image.
 - **Rotating `SESSION_SECRET`.** Put the old secret in `SESSION_SECRET_PREVIOUS` and the new one in `SESSION_SECRET`:

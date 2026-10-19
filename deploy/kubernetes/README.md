@@ -30,6 +30,17 @@ The OIDC redirect URI is `<APP_URL>/auth/callback`. With `PLATFORM_AUTH=connect`
 the platform fetches `<APP_URL>/oauth/client-metadata.json` from the app's public address when someone connects, so
 that address must be reachable from the platform and must not redirect.
 
+**Optional: metrics.** Add the component to your overlay (it needs the Prometheus Operator's CRDs):
+
+```yaml
+components:
+  - ../../components/metrics   # path from your overlay to deploy/kubernetes/components/metrics
+```
+
+It sets `METRICS_ENABLED`, exposes port 9464 on a Service of its own (`pi-agent-interface-metrics`, so the app's public
+Service and its ingress never carry it), adds a ServiceMonitor, a NetworkPolicy letting a namespace called `monitoring` in
+(patch it to yours) and a PrometheusRule with eight starting alerts to tune. The metrics are listed in the README.
+
 ```sh
 kubectl kustomize deploy/kubernetes/base      # render the base
 kubectl apply -k <your overlay>

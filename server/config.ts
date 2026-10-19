@@ -119,6 +119,8 @@ export interface Config {
   databaseUrl: string;
   /** Becomes an administrator on signing in while there is no administrator (the bootstrap). */
   initialAdminEmail: string | null;
+  /** Prometheus metrics on a port of their own (never the public one); off unless METRICS_ENABLED=true. */
+  metrics?: { host: string; port: number } | null;
   /** Optional features this deployment turns off for good (features.ts); administrators cannot turn them on. */
   disabledFeatures?: string[];
 }
@@ -187,6 +189,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (oidc && oidc.issuer.protocol !== 'https:' && !isLoopback(oidc.issuer))
     problems.push('OIDC_ISSUER must use https');
 
+  let metricsConfig: Config['metrics'] = null;
+  if (env.METRICS_ENABLED === 'true') {
+    const port = Number(env.METRICS_PORT ?? 9464);
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+      problems.push('METRICS_PORT is a port number');
+    metricsConfig = { host: env.METRICS_HOST?.trim() || '0.0.0.0', port };
+    if (port === Number(env.PORT ?? 5178)) problems.push('METRICS_PORT must differ from PORT');
+  }
+
   const platformUrl = url('PLATFORM_URL');
   const authSetting = env.PLATFORM_AUTH?.trim();
   if (authSetting && authSetting !== 'connect' && authSetting !== 'service')
@@ -232,6 +243,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     staticDir: env.STATIC_DIR?.trim() || null,
     databaseUrl: required('DATABASE_URL'),
     initialAdminEmail: env.INITIAL_ADMIN_EMAIL?.trim() || null,
+    metrics: metricsConfig,
     disabledFeatures: (env.DISABLED_FEATURES ?? '')
       .split(',')
       .map((name) => name.trim())
