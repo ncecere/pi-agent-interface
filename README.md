@@ -67,7 +67,8 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 | `AGENT_MODEL` | The default model, by name or id, until an administrator picks one in Admin → Agents (which wins). Only a model currently published to the team is ever set, since an agent on an unpublished model would not start. Empty: the platform decides. |
 | `DATABASE_URL` | The chat app's own Postgres (people, roles, settings, preferences). Migrated on start. Conversations stay on the platform. |
 | `INITIAL_ADMIN_EMAIL` | Becomes an administrator on signing in while there is no administrator. After that, admins promote others. |
-| `SESSION_SECRET` | 32+ characters (`openssl rand -base64 48`). Encrypts sessions; changing it signs everyone out. |
+| `SESSION_SECRET` | 32+ characters (`openssl rand -base64 48`). Encrypts sessions and the stored platform tokens. To replace it without signing everyone out or making them connect again, see "Rotating `SESSION_SECRET`" below; changing it alone signs everyone out and disconnects them. |
+| `SESSION_SECRET_PREVIOUS` | Secrets this deployment used before, comma-separated, still accepted for opening sessions and stored tokens during a rotation. Empty normally. |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Single sign-on. All three. |
 | `OIDC_ALLOWED_GROUPS` | Comma-separated group names. When set, only members of one of these (or of an admin group) can sign in; everyone else sees "isn't allowed" and, if they had signed in before, their sessions end. Empty: anyone your provider signs in. |
 | `OIDC_ADMIN_GROUPS` | Comma-separated group names. When set, the provider decides who is an administrator, on every sign-in: members become administrators, others members. Admin → People then can't change roles. The last active administrator is never demoted this way (use `INITIAL_ADMIN_EMAIL`, or the recovery command, to get back in). |
@@ -80,6 +81,18 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 
 The server refuses to start, naming every problem, if the configuration is incomplete or unsafe: a platform or
 provider that is not https (outside localhost), development accounts on a public address, a short session secret.
+
+### Rotating `SESSION_SECRET`
+
+1. Generate a new secret. Set `SESSION_SECRET` to it and `SESSION_SECRET_PREVIOUS` to the old one, then restart.
+2. People stay signed in: a session opened with the old secret is sealed again with the new one the next time it is used. On
+   start the app also seals every stored platform connection with the new secret and logs how many (and how many could not
+   be opened with any secret; those people connect again).
+3. When the log line says the previous secret is no longer needed, and after the session lifetime has passed
+   (`SESSION_TTL_HOURS`, 7 days by default) so that sessions of people who have not come back have ended anyway, remove
+   `SESSION_SECRET_PREVIOUS`. Anyone whose session still carried the old secret signs in again; nothing else is lost.
+
+Rotate the same way if the secret leaks, but then remove the previous one as soon as step 2 has run, since it is the leaked one.
 
 ## Running it
 

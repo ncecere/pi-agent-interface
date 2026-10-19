@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Config } from './config.ts';
-import { Sealer, token } from './session.ts';
+import { Sealer, secretsOf, token } from './session.ts';
 import type { PlatformConnection, Store } from './store.ts';
 
 /**
@@ -83,14 +83,17 @@ export class Connect {
   private readonly pending: Sealer;
 
   constructor(
-    private readonly config: Pick<Config, 'appUrl' | 'platformUrl' | 'sessionSecret'>,
+    private readonly config: Pick<
+      Config,
+      'appUrl' | 'platformUrl' | 'sessionSecret' | 'sessionSecretPrevious'
+    >,
     private readonly store: Store,
     /** The app's name, for the platform's approval screen and Connected apps. */
     private readonly appName: () => Promise<string>,
     private readonly fetchImpl: typeof fetch = fetch,
   ) {
-    this.tokens = new Sealer(config.sessionSecret, 'platform-tokens');
-    this.pending = new Sealer(config.sessionSecret, 'connect-pending');
+    this.tokens = new Sealer(secretsOf(config), 'platform-tokens');
+    this.pending = new Sealer(secretsOf(config), 'connect-pending');
   }
 
   get redirectUri(): string {
@@ -449,4 +452,39 @@ export class Connect {
       console.warn('[connect] the refresh token could not be revoked', error);
     }
   }
+}
+
+/**
+ * After a rotation of SESSION_SECRET: seals every stored platform token that
+ * only a previous secret opens with the current one, so the previous secret can
+ * be dropped without anyone having to connect again. Safe to run on every
+ * start, and by two replicas at once.
+ */
+export async function resealConnections(
+  config: Pick<Config, 'sessionSecret' | 'sessionSecretPrevious'>,
+  store: Store,
+): Promise<{ resealed: number; unreadable: number }> {
+  const tokens = new Sealer(secretsOf(config), 'platform-tokens');
+  let resealed = 0;
+  let unreadable = 0;
+  for (const personId of await store.connectionIds()) {
+    await store.withConnectionLock(personId, async () => {
+      const row = await store.connection(personId);
+      if (!row) return;
+      const access = tokens.open<string>(row.accessToken);
+      const refresh = tokens.open<string>(row.refreshToken);
+      if (access === null || refresh === null) {
+        unreadable++;
+        return;
+      }
+      if (!tokens.needsReseal(row.accessToken) && !tokens.needsReseal(row.refreshToken)) return;
+      await store.saveConnection(personId, {
+        ...row,
+        accessToken: tokens.seal(access),
+        refreshToken: tokens.seal(refresh),
+      });
+      resealed++;
+    });
+  }
+  return { resealed, unreadable };
 }

@@ -189,8 +189,10 @@ function contract(name: string, make: () => Promise<Store>) {
       await expect(store.saveConnection('nobody', connection)).rejects.toMatchObject({
         code: 'not_found',
       });
+      expect(await store.connectionIds()).toEqual(['tim']);
       await store.removeConnection('tim');
       expect(await store.connection('tim')).toBeNull();
+      expect(await store.connectionIds()).toEqual([]);
     });
 
     it('runs one refresh at a time per person', async () => {

@@ -32,6 +32,7 @@ import {
   now,
   Sealer,
   type Session,
+  secretsOf,
   token,
   type User,
   userIdFor,
@@ -148,8 +149,8 @@ export function createApp(
   const secure = config.appUrl.protocol === 'https:';
   const sessionCookie = secure ? '__Host-pai_session' : 'pai_session';
   const loginCookie = secure ? '__Host-pai_login' : 'pai_login';
-  const sessions = new Sealer(config.sessionSecret, 'session');
-  const logins = new Sealer(config.sessionSecret, 'login');
+  const sessions = new Sealer(secretsOf(config), 'session');
+  const logins = new Sealer(secretsOf(config), 'login');
   const appOrigin = config.appUrl.origin;
 
   let oidcConfig: Promise<oidc.Configuration> | null = null;
@@ -210,6 +211,15 @@ export function createApp(
   > => {
     const session = readSession(c);
     if (!session) return { status: 401, code: 'unauthorized', message: 'Sign in to continue' };
+    // A session sealed with a previous secret is sealed again with the current one, for the time it has left.
+    if (sessions.needsReseal(getCookie(c, sessionCookie)))
+      setCookie(c, sessionCookie, sessions.seal(session), {
+        httpOnly: true,
+        secure,
+        sameSite: 'Lax',
+        path: '/',
+        maxAge: Math.max(1, session.expiresAt - now()),
+      });
     const person = await personFor(session.user.id);
     if (!person || person.sessionVersion !== session.v) {
       deleteCookie(c, sessionCookie, { path: '/', secure });

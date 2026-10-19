@@ -92,6 +92,8 @@ export interface Store {
   personalAgents(personId: string): Promise<PersonalAgent[]>;
   /** A person's connection to the platform (Connect mode); tokens are stored as given (encrypted by the caller). */
   connection(personId: string): Promise<PlatformConnection | null>;
+  /** Everyone who has a connection (for re-sealing tokens after a secret rotation). */
+  connectionIds(): Promise<string[]>;
   saveConnection(personId: string, connection: PlatformConnection): Promise<void>;
   removeConnection(personId: string): Promise<void>;
   /**
@@ -278,6 +280,10 @@ export class MemoryStore implements Store {
   async connection(personId: string) {
     const found = this.connections.get(personId);
     return found ? structuredClone(found) : null;
+  }
+
+  async connectionIds() {
+    return [...this.connections.keys()];
   }
 
   async saveConnection(personId: string, connection: PlatformConnection) {

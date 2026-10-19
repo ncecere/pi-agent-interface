@@ -410,6 +410,13 @@ export class PgStore implements Store {
       : null;
   }
 
+  async connectionIds() {
+    const rows = await this.sql<
+      { person_id: string }[]
+    >`select person_id from platform_connections`;
+    return rows.map((row) => row.person_id);
+  }
+
   async saveConnection(personId: string, c: PlatformConnection) {
     try {
       await this.sql`

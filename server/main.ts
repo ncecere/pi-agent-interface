@@ -4,6 +4,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createApp } from './app.ts';
 import { loadConfig, loadEnvFiles } from './config.ts';
+import { resealConnections } from './connect.ts';
 import { migrate, PgStore, waitForDatabase } from './store-pg.ts';
 
 loadEnvFiles();
@@ -12,6 +13,16 @@ const store = PgStore.connect(config.databaseUrl);
 await waitForDatabase(store.sql);
 const applied = await migrate(store.sql);
 if (applied.length) console.log(`[server] database migrated: ${applied.join(', ')}`);
+if (config.sessionSecretPrevious?.length) {
+  // A rotation in progress: bring every stored platform token under the current secret.
+  const done = await resealConnections(config, store);
+  console.log(
+    `[server] SESSION_SECRET_PREVIOUS is set: ${done.resealed} platform connection(s) sealed again with the current secret` +
+      (done.unreadable
+        ? `; ${done.unreadable} could not be opened with any secret (those people connect again)`
+        : '; the previous secret is no longer needed for them'),
+  );
+}
 const app = createApp(config, { store });
 
 // Production: the built web app, with every other path answered by index.html

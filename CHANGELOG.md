@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Rotating `SESSION_SECRET`.** Put the old secret in `SESSION_SECRET_PREVIOUS` and the new one in `SESSION_SECRET`:
+  sessions keep working (and are sealed again with the new secret as they are used), and on start the app seals every
+  stored platform connection with the new secret, so nobody signs in or connects again. The log says when the old secret
+  can be dropped.
 - **Sign-in by group.** `OIDC_ALLOWED_GROUPS` limits who can sign in to members of the listed groups of your identity
   provider, and `OIDC_ADMIN_GROUPS` makes its groups decide who is an administrator, checked on every sign-in. Someone
   who loses the group is signed out of the sessions they have and can't sign in again. `OIDC_GROUPS_CLAIM` says where

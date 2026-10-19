@@ -99,6 +99,11 @@ export interface Config {
   agentModel: string;
   /** 32+ characters; encrypts session cookies. Changing it signs everyone out. */
   sessionSecret: string;
+  /**
+   * Secrets this app used before (SESSION_SECRET_PREVIOUS), still accepted for opening
+   * sessions and stored platform tokens while a rotation completes. New values are always sealed with `sessionSecret`.
+   */
+  sessionSecretPrevious?: string[];
   sessionTtlSeconds: number;
   /** Single sign-on; all three or none. */
   oidc: { issuer: URL; clientId: string; clientSecret: string; scopes: string } | null;
@@ -151,6 +156,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const sessionSecret = env.SESSION_SECRET?.trim() ?? '';
   if (sessionSecret.length < 32) problems.push('SESSION_SECRET must be at least 32 characters');
+
+  const sessionSecretPrevious = (env.SESSION_SECRET_PREVIOUS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value && value !== sessionSecret);
+  if (sessionSecretPrevious.some((value) => value.length < 32))
+    problems.push('SESSION_SECRET_PREVIOUS: every secret must be at least 32 characters');
 
   const issuer = env.OIDC_ISSUER?.trim();
   const clientId = env.OIDC_CLIENT_ID?.trim();
@@ -209,6 +221,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     agentName: env.AGENT_NAME?.trim() || 'Assistant',
     agentModel: env.AGENT_MODEL?.trim() ?? '',
     sessionSecret,
+    sessionSecretPrevious: [...new Set(sessionSecretPrevious)],
     sessionTtlSeconds: Number.isFinite(ttlHours) && ttlHours > 0 ? ttlHours * 3600 : 168 * 3600,
     oidc,
     oidcGroups,

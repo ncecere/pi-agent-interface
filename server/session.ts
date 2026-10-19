@@ -32,32 +32,66 @@ export interface LoginState {
   expiresAt: number;
 }
 
-export class Sealer {
-  private readonly key: Buffer;
+/**
+ * The secrets that may open sealed values: the current one first, then any
+ * previous ones (SESSION_SECRET_PREVIOUS) kept while a rotation completes.
+ */
+export function secretsOf(config: {
+  sessionSecret: string;
+  sessionSecretPrevious?: readonly string[];
+}): string[] {
+  return [config.sessionSecret, ...(config.sessionSecretPrevious ?? [])];
+}
 
-  constructor(secret: string, purpose: string) {
-    this.key = Buffer.from(hkdfSync('sha256', secret, 'pi-agent-interface', purpose, 32));
+export class Sealer {
+  private readonly keys: Buffer[];
+
+  /** Seals with the first secret; opens with any of them. */
+  constructor(secret: string | readonly string[], purpose: string) {
+    const secrets = typeof secret === 'string' ? [secret] : secret;
+    this.keys = secrets.map((one) =>
+      Buffer.from(hkdfSync('sha256', one, 'pi-agent-interface', purpose, 32)),
+    );
   }
 
   seal(value: unknown): string {
     const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', this.key, iv);
+    const cipher = createCipheriv('aes-256-gcm', this.keys[0]!, iv);
     const body = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
     return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
   }
 
-  open<T>(sealed: string | undefined): T | null {
+  /** The value and which secret opened it (0: the current one). */
+  private unseal<T>(sealed: string | undefined): { value: T; key: number } | null {
     if (!sealed) return null;
+    let raw: Buffer;
     try {
-      const raw = Buffer.from(sealed, 'base64url');
-      if (raw.length < 29) return null;
-      const decipher = createDecipheriv('aes-256-gcm', this.key, raw.subarray(0, 12));
-      decipher.setAuthTag(raw.subarray(12, 28));
-      const text = Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
-      return JSON.parse(text.toString('utf8')) as T;
+      raw = Buffer.from(sealed, 'base64url');
     } catch {
       return null;
     }
+    if (raw.length < 29) return null;
+    for (const [index, key] of this.keys.entries()) {
+      try {
+        const decipher = createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
+        decipher.setAuthTag(raw.subarray(12, 28));
+        const text = Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
+        return { value: JSON.parse(text.toString('utf8')) as T, key: index };
+      } catch {
+        // Not this secret (or not JSON): try the next.
+      }
+    }
+    return null;
+  }
+
+  open<T>(sealed: string | undefined): T | null {
+    return this.unseal<T>(sealed)?.value ?? null;
+  }
+
+  /** True when the value opens, but only with a previous secret: seal it again with the current one. */
+  needsReseal(sealed: string | undefined): boolean {
+    const opened = this.unseal(sealed);
+    return opened !== null && opened.key > 0;
   }
 }
 
