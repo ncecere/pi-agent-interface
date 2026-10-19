@@ -23,10 +23,16 @@ const row = (agentId: string | null, requests: number, tokens = 100, day?: strin
 
 describe('features', () => {
   it('uses the default until an administrator chooses, and the environment can lock one off', () => {
-    expect(resolveFeatures(null)).toEqual({ usage: true, connectedUsage: false, myUsage: false });
+    expect(resolveFeatures(null)).toEqual({
+      usage: true,
+      connectedUsage: false,
+      messageSearch: false,
+      myUsage: false,
+    });
     expect(resolveFeatures({ usage: false, myUsage: true })).toEqual({
       usage: false,
       connectedUsage: false,
+      messageSearch: false,
       myUsage: true,
     });
     expect(resolveFeatures({ usage: true }, ['usage'])).toMatchObject({ usage: false });

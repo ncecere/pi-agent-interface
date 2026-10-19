@@ -5,6 +5,8 @@
  * tests that are not about storage fast, and runs the same contract tests.
  */
 
+import { matchesTerms, type SearchHit, searchTerms, snippetOf } from './search.ts';
+
 export type Role = 'admin' | 'user';
 export type Status = 'active' | 'suspended';
 
@@ -90,6 +92,17 @@ export interface Store {
   setPref(personId: string, key: string, value: unknown): Promise<void>;
   /** A person's own agents, oldest first. */
   personalAgents(personId: string): Promise<PersonalAgent[]>;
+  /**
+   * The searchable copy of a conversation's text (the `messageSearch` feature), replaced as the conversation
+   * grows. One per person and conversation; an empty body removes it.
+   */
+  indexThread(personId: string, agentId: string, threadId: string, body: string): Promise<void>;
+  /** Conversations of this person whose text holds every word of the query (each word as a start of a word). */
+  searchIndex(personId: string, query: string, limit: number): Promise<SearchHit[]>;
+  /** The copy of a conversation that was deleted. */
+  forgetIndexed(personId: string, agentId: string, threadId: string): Promise<void>;
+  /** Everything indexed, for everyone (the feature was turned off). How many conversations; recorded in the audit log. */
+  purgeIndex(actorId: string | null): Promise<number>;
   /** A person's connection to the platform (Connect mode); tokens are stored as given (encrypted by the caller). */
   connection(personId: string): Promise<PlatformConnection | null>;
   /** Everyone who has a connection (for re-sealing tokens after a secret rotation). */
@@ -250,6 +263,37 @@ export class MemoryStore implements Store {
 
   async personalAgents(personId: string) {
     return (this.personal.get(personId) ?? []).map((agent) => ({ ...agent }));
+  }
+
+  private readonly indexed = new Map<string, { at: Date; body: string }>();
+
+  async indexThread(personId: string, agentId: string, threadId: string, body: string) {
+    if (!this.rows.has(personId)) throw new StoreError('not_found', 'No such person');
+    const key = `${personId}\u0000${agentId}\u0000${threadId}`;
+    if (body.trim()) this.indexed.set(key, { at: new Date(), body });
+    else this.indexed.delete(key);
+  }
+
+  async searchIndex(personId: string, query: string, limit: number) {
+    const terms = searchTerms(query);
+    const hits: SearchHit[] = [];
+    for (const [key, row] of this.indexed) {
+      const [owner, agentId, threadId] = key.split('\u0000');
+      if (owner !== personId || !agentId || !threadId || !matchesTerms(row.body, terms)) continue;
+      hits.push({ agentId, threadId, snippet: snippetOf(row.body, terms), indexedAt: row.at });
+    }
+    return hits.sort((a, b) => b.indexedAt.getTime() - a.indexedAt.getTime()).slice(0, limit);
+  }
+
+  async forgetIndexed(personId: string, agentId: string, threadId: string) {
+    this.indexed.delete(`${personId}\u0000${agentId}\u0000${threadId}`);
+  }
+
+  async purgeIndex(actorId: string | null) {
+    const count = this.indexed.size;
+    this.indexed.clear();
+    this.record(actorId, 'search.index_purged', null, { conversations: count });
+    return count;
   }
 
   async addPersonalAgent(personId: string, slot: string, name: string) {

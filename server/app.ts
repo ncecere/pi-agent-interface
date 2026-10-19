@@ -30,6 +30,7 @@ import {
 import { decide, groupsFrom } from './groups.ts';
 import { Metrics } from './metrics.ts';
 import { ownsAgent, Platform, type PlatformAgent, PlatformError } from './platform.ts';
+import { bodyOfView, searchTerms, tapViews, type ViewLike } from './search.ts';
 import {
   type LoginState,
   now,
@@ -808,7 +809,11 @@ export function createApp(
     const parsed = parseFeatureChange(await c.req.json().catch(() => null), disabledFeatures);
     if ('problems' in parsed) return invalid(c, parsed.problems);
     const saved = ((await store.setting('features')) ?? {}) as Record<string, unknown>;
+    const wasSearching = (await features()).messageSearch;
     await store.setSetting('features', { ...saved, ...parsed.value }, c.get('person').id);
+    // Turning message search off deletes what it kept: nothing of people's conversations stays behind.
+    if (wasSearching && parsed.value.messageSearch === false)
+      await store.purgeIndex(c.get('person').id);
     return c.json({ data: await features() });
   });
 
@@ -1380,9 +1385,15 @@ export function createApp(
 
   app.get('/api/agents/:agentId/threads', (c) => relay(c, agentPath(c, '/threads')));
   app.get('/api/agents/:agentId/threads/:threadId', (c) => relay(c, threadPath(c)));
-  app.delete('/api/agents/:agentId/threads/:threadId', (c) =>
-    relay(c, threadPath(c), { method: 'DELETE' }),
-  );
+  app.delete('/api/agents/:agentId/threads/:threadId', async (c) => {
+    const response = await relay(c, threadPath(c), { method: 'DELETE' });
+    // The searchable copy of its text goes with it.
+    if (response.ok)
+      await store
+        .forgetIndexed(c.get('person').id, c.req.param('agentId'), c.req.param('threadId'))
+        .catch(() => undefined);
+    return response;
+  });
   /** Renames a conversation: a title of 1-200 characters, on one line. */
   app.patch('/api/agents/:agentId/threads/:threadId', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { title?: unknown } | null;
@@ -1435,8 +1446,70 @@ export function createApp(
     };
     const response = await relay(c, path, { headers: { Accept: 'text/event-stream' } }, release);
     // Anything that is not a stream (an error, a refusal) holds nothing open.
-    if (!response.headers.get('Content-Type')?.startsWith('text/event-stream')) release();
+    if (!response.headers.get('Content-Type')?.startsWith('text/event-stream')) {
+      release();
+      return response;
+    }
+    // The messageSearch feature: the conversation's text is kept searchable as it is read.
+    if (response.body && (await feature('messageSearch')))
+      return new Response(
+        indexAsRead(
+          response.body,
+          c.get('person').id,
+          c.req.param('agentId'),
+          c.req.param('threadId'),
+        ),
+        response,
+      );
     return response;
+  });
+
+  /**
+   * Passes a conversation's stream on, and keeps its text searchable (search.ts): the latest whole transcript,
+   * a moment after it settles and when the stream ends. Never in the way of the stream.
+   */
+  const indexAsRead = (
+    body: ReadableStream<Uint8Array>,
+    personId: string,
+    agentId: string,
+    threadId: string,
+  ) => {
+    let latest: ViewLike | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = async () => {
+      clearTimeout(timer);
+      const view = latest;
+      latest = null;
+      if (!view || !(await feature('messageSearch'))) return;
+      try {
+        await store.indexThread(personId, agentId, threadId, bodyOfView(view));
+      } catch (error) {
+        console.warn('[search] could not index a conversation', error);
+      }
+    };
+    return tapViews(
+      body,
+      (view) => {
+        latest = view;
+        clearTimeout(timer);
+        timer = setTimeout(() => void flush(), view.busy ? 5_000 : 1_000);
+      },
+      () => void flush(),
+    );
+  };
+
+  /** Search inside messages (the `messageSearch` feature): the person's own conversations opened here. */
+  app.get('/api/search', requireSession, async (c) => {
+    if (!(await feature('messageSearch')))
+      return fail(c, 404, 'feature_off', 'Searching message text is turned off.');
+    const q = (c.req.query('q') ?? '').slice(0, 200);
+    if (searchTerms(q).join('').length < 2) return c.json({ data: { results: [] } });
+    const hits = await store.searchIndex(c.get('person').id, q, 30);
+    return c.json({
+      data: {
+        results: hits.map((hit) => ({ ...hit, indexedAt: hit.indexedAt.toISOString() })),
+      },
+    });
   });
 
   /**

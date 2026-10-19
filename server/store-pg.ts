@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { MARK_END, MARK_START, type SearchHit, searchTerms, tsQueryOf } from './search.ts';
 import {
   type AuditEntry,
   LAST_ADMIN_MESSAGE,
@@ -90,6 +91,22 @@ export const MIGRATIONS: { version: number; name: string; sql: string }[] = [
         agent_id text not null,
         primary key (person_id, provided_id)
       );
+    `,
+  },
+  {
+    version: 4,
+    name: 'searchable copy of conversation text (messageSearch)',
+    sql: `
+      create table message_index (
+        person_id text not null references people (id) on delete cascade,
+        agent_id text not null,
+        thread_id text not null,
+        body text not null,
+        indexed_at timestamptz not null default now(),
+        tsv tsvector generated always as (to_tsvector('simple', body)) stored,
+        primary key (person_id, agent_id, thread_id)
+      );
+      create index message_index_tsv on message_index using gin (tsv);
     `,
   },
 ];
@@ -354,6 +371,60 @@ export class PgStore implements Store {
       targetId: row.target_id,
       details: row.details,
     }));
+  }
+
+  async indexThread(personId: string, agentId: string, threadId: string, body: string) {
+    if (!body.trim()) return this.forgetIndexed(personId, agentId, threadId);
+    try {
+      await this.sql`
+        insert into message_index (person_id, agent_id, thread_id, body)
+        values (${personId}, ${agentId}, ${threadId}, ${body})
+        on conflict (person_id, agent_id, thread_id)
+        do update set body = excluded.body, indexed_at = now()`;
+    } catch (error) {
+      if ((error as { code?: string }).code === '23503')
+        throw new StoreError('not_found', 'No such person');
+      throw error;
+    }
+  }
+
+  async searchIndex(personId: string, query: string, limit: number): Promise<SearchHit[]> {
+    const terms = searchTerms(query);
+    if (terms.length === 0) return [];
+    const ts = tsQueryOf(terms);
+    const options = `StartSel=${MARK_START}, StopSel=${MARK_END}, MaxFragments=1, MaxWords=24, MinWords=10, ShortWord=1`;
+    const rows = await this.sql<
+      { agent_id: string; thread_id: string; indexed_at: Date; snippet: string }[]
+    >`
+      select m.agent_id, m.thread_id, m.indexed_at,
+             ts_headline('simple', m.body, q.query, ${options}) as snippet
+      from (
+        select agent_id, thread_id, indexed_at, body, tsv
+        from message_index
+        where person_id = ${personId} and tsv @@ to_tsquery('simple', ${ts})
+        order by ts_rank(tsv, to_tsquery('simple', ${ts})) desc, indexed_at desc
+        limit ${limit}
+      ) m, to_tsquery('simple', ${ts}) as q(query)`;
+    return rows.map((row) => ({
+      agentId: row.agent_id,
+      threadId: row.thread_id,
+      snippet: row.snippet.replace(/\s+/g, ' ').trim(),
+      indexedAt: row.indexed_at,
+    }));
+  }
+
+  async forgetIndexed(personId: string, agentId: string, threadId: string) {
+    await this
+      .sql`delete from message_index where person_id = ${personId} and agent_id = ${agentId} and thread_id = ${threadId}`;
+  }
+
+  async purgeIndex(actorId: string | null) {
+    return this.sql.begin(async (tx) => {
+      const gone = await tx`delete from message_index returning 1`;
+      await tx`insert into audit_log (actor_id, action, details)
+        values (${actorId}, 'search.index_purged', ${tx.json({ conversations: gone.length })})`;
+      return gone.length;
+    });
   }
 
   async personalAgents(personId: string): Promise<PersonalAgent[]> {

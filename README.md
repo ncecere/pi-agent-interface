@@ -88,7 +88,7 @@ provider that is not https (outside localhost), development accounts on a public
 ### Backing up and restoring
 
 The database holds who has signed in, their role, settings and preferences, each person's encrypted agent-platform tokens,
-and which agent is their copy of a provided agent. **Conversations are on the agent platform, not here.** Back it up like any
+and which agent is their copy of a provided agent. **Conversations are on the agent platform, not here**, except the searchable copy of their text that the optional `messageSearch` feature keeps (off by default). Back it up like any
 PostgreSQL database: a scheduled `pg_dump`, or continuous archiving (point-in-time recovery) if your operator offers it.
 
 To restore: bring the database back, then start the app against it (it migrates on start; the schema version is in
@@ -215,7 +215,7 @@ of the problems; if something fails for you, open an issue saying what you used.
 |---|---|---|---|
 | **Deployment** | Environment variables (above) | Whoever runs the server; a restart applies it | Platform URL and key, sign-in, `AGENT_MODEL` as a fallback |
 | **Instance settings** | The app's database; Admin → Agents, Branding | Administrators, at once, in the audit log | Default model, provided agents, the name and logo |
-| **Optional features** | The app's database; Admin → Features | Administrators, at once, in the audit log | `usage`, `connectedUsage` (Admin → Usage), `myUsage` (Settings → Usage) |
+| **Optional features** | The app's database; Admin → Features | Administrators, at once, in the audit log | `usage`, `connectedUsage` (Admin → Usage), `messageSearch` (sidebar search), `myUsage` (Settings → Usage) |
 | **Personal preferences** | The person's account; Settings | Each person, for themselves, on every device | Theme, avatar style, the inbox (pinned, snoozed, read) |
 
 **Optional features** are whole parts of the app an instance may do without. Each is declared once in
@@ -231,6 +231,7 @@ Features today:
 |---|---|---|
 | `usage` | on | Admin → Usage: requests, tokens and an estimated cost per person for the last 7, 30 or 90 days, from the platform's usage report (`GET /v1/teams/{team}/usage`). Agents that name no person here are summed as "Other agents". Cost appears once the platform has prices for the models. |
 | `connectedUsage` | off | Connect only: Admin → Usage for the people who have connected their platform account. Each person's own report is read with their own connection, by agent and by day (`GET /v1/teams/{personal}/usage`), a few at a time and kept for a minute, so opening the page costs a few calls per person. It covers only agents in the person's personal workspace, not their teams'. People who have not connected, and people whose report the platform would not give, are listed apart ("Not in these figures"), never counted as zero. |
+| `messageSearch` | off | The sidebar's search also looks inside messages. The app keeps its own searchable copy of the text of the conversations people open in it (what people and the agent said; not thinking or tool output; up to 200,000 characters each), one per person and conversation, in its database (table `message_index`, PostgreSQL full-text search, each word matched as the start of a word). Each person searches only their own; a copy goes when the conversation is deleted here; turning the feature off deletes every copy and says so in the audit log. It covers only conversations opened through this app, and a conversation deleted somewhere else leaves a copy nobody sees until the feature is turned off. This is the one place the app holds conversation text; the platform's own is the record. |
 | `myUsage` | off | Settings → Usage: each person sees their own agents' requests, tokens and estimated cost, per agent and per day (`GET /api/me/usage`). Nobody sees anyone else's. |
 
 ## How it works

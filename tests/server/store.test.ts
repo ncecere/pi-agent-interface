@@ -76,6 +76,85 @@ function contract(name: string, make: () => Promise<Store>) {
       expect((await store.signIn(tim, null, false)).role).toBe('admin');
     });
 
+    it('keeps a searchable copy of conversations, per person, found by the start of words', async () => {
+      await store.signIn(tim, null);
+      await store.signIn(bob, null);
+      await store.indexThread(
+        'tim',
+        'agent-1',
+        't-desk',
+        'Can I expense a standing desk?\nYes, up to $400.',
+      );
+      await store.indexThread('tim', 'agent-1', 't-churn', 'Export the churn report to CSV');
+      await store.indexThread('bob', 'agent-9', 't-bobs', 'My own standing meeting notes');
+
+      const found = await store.searchIndex('tim', 'expen desk', 10);
+      expect(found.map((hit) => `${hit.agentId}/${hit.threadId}`)).toEqual(['agent-1/t-desk']);
+      expect(found[0]?.snippet.replaceAll('\u0001', '[').replaceAll('\u0002', ']')).toMatch(
+        /\[expense\]/i,
+      );
+      expect(found[0]?.indexedAt).toBeInstanceOf(Date);
+
+      // Every word has to be there; a word's start is enough; a word's middle is not.
+      expect(await store.searchIndex('tim', 'expense churn', 10)).toEqual([]);
+      expect((await store.searchIndex('tim', 'REPORT', 10)).map((h) => h.threadId)).toEqual([
+        't-churn',
+      ]);
+      expect(await store.searchIndex('tim', 'xpense', 10)).toEqual([]);
+      // Operators in a query are only words.
+      expect(await store.searchIndex('tim', "desk' | 1=1 --", 10)).toEqual([]);
+      expect(await store.searchIndex('tim', '   ', 10)).toEqual([]);
+      // Each person's own: Bob's matches do not reach Tim, nor Tim's Bob.
+      expect((await store.searchIndex('tim', 'standing', 10)).map((h) => h.threadId)).toEqual([
+        't-desk',
+      ]);
+      expect((await store.searchIndex('bob', 'standing', 10)).map((h) => h.threadId)).toEqual([
+        't-bobs',
+      ]);
+      expect(await store.searchIndex('bob', 'churn', 10)).toEqual([]);
+    });
+
+    it('replaces a conversation\u2019s copy as it grows, drops it when emptied or forgotten, and limits results', async () => {
+      await store.signIn(tim, null);
+      await store.indexThread('tim', 'a', 't1', 'first version about apples');
+      await store.indexThread('tim', 'a', 't1', 'second version about pears');
+      expect(await store.searchIndex('tim', 'apples', 10)).toEqual([]);
+      expect((await store.searchIndex('tim', 'pears', 10)).length).toBe(1);
+      await store.indexThread('tim', 'a', 't1', '   ');
+      expect(await store.searchIndex('tim', 'pears', 10)).toEqual([]);
+
+      for (let i = 0; i < 5; i++)
+        await store.indexThread('tim', 'a', `t${i}`, `note ${i} about plums`);
+      expect(await store.searchIndex('tim', 'plums', 3)).toHaveLength(3);
+      await store.forgetIndexed('tim', 'a', 't2');
+      expect((await store.searchIndex('tim', 'plums', 10)).map((h) => h.threadId).sort()).toEqual([
+        't0',
+        't1',
+        't3',
+        't4',
+      ]);
+      await store.forgetIndexed('tim', 'a', 'never-indexed'); // not an error
+    });
+
+    it('purges every copy, for everyone, and records it', async () => {
+      await store.signIn(tim, null);
+      await store.signIn(bob, null);
+      await store.indexThread('tim', 'a', 't1', 'plums');
+      await store.indexThread('bob', 'a', 't2', 'plums');
+      expect(await store.purgeIndex('tim')).toBe(2);
+      expect(await store.searchIndex('tim', 'plums', 10)).toEqual([]);
+      expect(await store.searchIndex('bob', 'plums', 10)).toEqual([]);
+      const entry = (await store.audit(5)).find((e) => e.action === 'search.index_purged');
+      expect(entry?.details).toEqual({ conversations: 2 });
+      expect(entry?.actorId).toBe('tim');
+    });
+
+    it('refuses to index for someone who has not signed in', async () => {
+      await expect(store.indexThread('nobody', 'a', 't', 'text')).rejects.toMatchObject({
+        code: 'not_found',
+      });
+    });
+
     it('never leaves no active administrator', async () => {
       await store.signIn(tim, 'tim@example.test');
       await expect(store.updatePerson('tim', { role: 'user' }, 'tim')).rejects.toMatchObject({
@@ -276,7 +355,7 @@ describe.skipIf(!available)('PgStore', () => {
     url.pathname = `/${name}`;
     const store = PgStore.connect(url.href);
     stores.push(store);
-    expect(await migrate(store.sql)).toEqual([1, 2, 3]);
+    expect(await migrate(store.sql)).toEqual([1, 2, 3, 4]);
     expect(await migrate(store.sql)).toEqual([]);
   });
 

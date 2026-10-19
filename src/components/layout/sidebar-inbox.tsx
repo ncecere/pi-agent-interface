@@ -45,6 +45,7 @@ import {
 import { Spinner } from '~/components/ui/spinner';
 import { useDeleteThread, useRenameThread } from '~/hooks/use-agents';
 import { type InboxActions, useInbox, useInboxActions } from '~/hooks/use-inbox';
+import { searchable, useMessageSearch } from '~/hooks/use-message-search';
 import { keepFocusWhenRemoved } from '~/lib/focus-return';
 import {
   activityAt,
@@ -58,6 +59,7 @@ import {
 } from '~/lib/inbox';
 import { matchInboxShortcut } from '~/lib/inbox-shortcuts';
 import { nextPage, PAGE_SIZE, visibleOf } from '~/lib/paging';
+import { splitSnippet } from '~/lib/snippet';
 import { cn } from '~/lib/utils';
 
 /** Which shelves are open, remembered in this browser. They start closed. */
@@ -113,6 +115,27 @@ export function SidebarInbox({ filter }: { filter: string }) {
     archived: inbox.sections.archived.filter(show),
   };
   const active = [...sections.pinned, ...sections.working, ...sections.inbox];
+
+  // Messages whose text holds the query (the messageSearch feature), beyond the titles that do.
+  const messages = useMessageSearch(filter);
+  const byKey = new Map(inbox.entries.map((entry) => [entry.key, entry]));
+  const titled = new Set(
+    [
+      ...sections.pinned,
+      ...sections.working,
+      ...sections.inbox,
+      ...sections.snoozed,
+      ...sections.done,
+      ...sections.archived,
+    ].map((entry) => entry.key),
+  );
+  const inMessages = messages.hits
+    .map((hit) => ({ hit, entry: byKey.get(`${hit.agentId}/${hit.threadId}`) }))
+    .filter(
+      (found): found is { hit: (typeof messages.hits)[number]; entry: InboxEntry } =>
+        found.entry !== undefined && (!agentFilter || found.entry.agentId === agentFilter),
+    );
+  const messageOnly = inMessages.filter(({ entry }) => !titled.has(entry.key));
 
   /** Said, with a way back. */
   const undoable = (message: string, key: string, apply: () => ThreadMeta | undefined) => {
@@ -279,6 +302,37 @@ export function SidebarInbox({ filter }: { filter: string }) {
         </fieldset>
       )}
 
+      {messages.enabled && searchable(filter) && (
+        <section aria-labelledby="inbox-messages">
+          <Heading id="inbox-messages">In messages</Heading>
+          {messageOnly.length > 0 ? (
+            <ul aria-label="Conversations whose messages match" className="flex flex-col gap-px">
+              {messageOnly.map(({ hit, entry }) => (
+                <li key={entry.key}>
+                  <Link
+                    to="/agents/$agentId/threads/$threadId"
+                    params={{ agentId: entry.agentId, threadId: entry.threadId }}
+                    aria-current={openKey === entry.key ? 'page' : undefined}
+                    className="flex flex-col gap-0.5 rounded-md px-2.5 py-1.5 outline-none hover:bg-[var(--sidebar-row-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent-bright)]"
+                  >
+                    <span dir="auto" className="truncate text-sm text-[var(--text-primary)]">
+                      {entry.title}
+                    </span>
+                    <Snippet text={hit.snippet} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p role="status" className="px-2.5 py-1.5 text-xs text-[var(--text-muted)]">
+              {messages.pending ? 'Searching…' : 'No messages match.'}
+            </p>
+          )}
+          <p className="px-2.5 pt-1 text-[0.6875rem] text-[var(--text-muted)]">
+            Only conversations opened in this app are searched.
+          </p>
+        </section>
+      )}
       {sections.pinned.length > 0 && (
         <section aria-labelledby="inbox-pinned">
           <Heading id="inbox-pinned">Pinned</Heading>
@@ -370,6 +424,26 @@ function PagedList({
         </button>
       )}
     </>
+  );
+}
+
+/** A line from a message, the words that matched in <mark> (lib/snippet.ts). */
+function Snippet({ text }: { text: string }) {
+  return (
+    <span dir="auto" className="line-clamp-2 text-xs text-[var(--text-muted)]">
+      {splitSnippet(text).map((part) =>
+        part.match ? (
+          <mark
+            key={part.at}
+            className="rounded-sm bg-[var(--accent-soft)] px-0.5 text-[var(--text-primary)]"
+          >
+            {part.text}
+          </mark>
+        ) : (
+          <span key={part.at}>{part.text}</span>
+        ),
+      )}
+    </span>
   );
 }
 

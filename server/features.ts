@@ -34,6 +34,12 @@ export const FEATURES = {
       "With Connect, administrators see requests, tokens and an estimated cost for each person who has connected their platform account: read from the person's own personal workspace, with their own connection, when an administrator opens Admin → Usage. It covers only what they run there (not agents of their teams), and says who has not connected rather than counting them as zero.",
     default: false,
   },
+  messageSearch: {
+    label: 'Search message text',
+    description:
+      "The sidebar's search also looks inside messages. To do that the app keeps a searchable copy of the text of the conversations people open in it, in its own database: each person's own, never shown to anyone else, deleted with the conversation (when it is deleted here) and all of it deleted when this is turned off. It covers only conversations opened through this app, not everything on the platform.",
+    default: false,
+  },
   myUsage: {
     label: 'Personal usage',
     description:

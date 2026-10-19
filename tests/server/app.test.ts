@@ -318,7 +318,12 @@ describe('optional features and usage', () => {
   it('tells everyone which features are on', async () => {
     const { cookie } = await signIn('bob');
     const me = await (await app.request('/api/me', { headers: { Cookie: cookie } })).json();
-    expect(me.data.features).toEqual({ usage: true, connectedUsage: false, myUsage: false });
+    expect(me.data.features).toEqual({
+      usage: true,
+      connectedUsage: false,
+      messageSearch: false,
+      myUsage: false,
+    });
   });
 
   it('shows administrators usage per person, and nobody else', async () => {
@@ -1019,5 +1024,151 @@ describe('agents', () => {
     await make(tim, { name: 'One', templateId: 't-coder', modelId: 'm-luna' });
     expect(platform.created.at(-1)).toMatchObject({ modelId: 'm-oss' });
     expect((await make(tim, { name: 'Two', templateId: 't-coder' })).status).toBe(409);
+  });
+});
+
+describe('searching message text (the messageSearch feature)', () => {
+  const withAdmin = { ...config, initialAdminEmail: 'tim@example.test' };
+  beforeEach(() => {
+    app = createApp(withAdmin, { store, platform: platform as unknown as Platform });
+  });
+
+  const setFeature = async (
+    who: { cookie: string; csrf: string },
+    value: Record<string, boolean>,
+  ) =>
+    app.request('/api/admin/settings/features', {
+      method: 'PUT',
+      headers: {
+        Cookie: who.cookie,
+        'X-CSRF-Token': who.csrf,
+        Origin: 'http://localhost:5177',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(value),
+    });
+  const search = (cookie: string, q: string) =>
+    app.request(`/api/search?q=${encodeURIComponent(q)}`, { headers: { Cookie: cookie } });
+
+  /** A conversation's stream as the platform sends it: the transcript so far, then it ends. */
+  const streamsTranscript = (messages: Array<{ role: string; text?: string }>, busy = false) => {
+    const wire = `event: ready\ndata: {}\n\nevent: view\ndata: ${JSON.stringify({ busy, messages, tools: [] })}\n\n`;
+    platform.fetch = async (path: string) =>
+      path.endsWith('/events')
+        ? new Response(wire, { headers: { 'Content-Type': 'text/event-stream' } })
+        : new Response(null, { status: 204 });
+  };
+  /** Opens the conversation and reads its stream to the end, as a browser does. */
+  const openConversation = async (cookie: string, agentId: string, threadId: string) => {
+    const response = await app.request(`/api/agents/${agentId}/threads/${threadId}/events`, {
+      headers: { Cookie: cookie },
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+  };
+
+  it('is off to begin with: nothing is kept, and the search says so', async () => {
+    const tim = await signIn('tim');
+    streamsTranscript([{ role: 'user', text: 'Can I expense a standing desk?' }]);
+    await openConversation(tim.cookie, TIM_AGENT, 't-desk');
+    expect((await search(tim.cookie, 'desk')).status).toBe(404);
+    expect(await store.searchIndex(userIdFor('dev', 'tim'), 'desk', 5)).toEqual([]);
+  });
+
+  it('keeps the text of conversations that are opened, finds it, and shows each person only their own', async () => {
+    const tim = await signIn('tim');
+    expect((await setFeature(tim, { messageSearch: true })).status).toBe(200);
+    streamsTranscript([
+      { role: 'user', text: 'Can I expense a standing desk?' },
+      { role: 'assistant', text: 'Yes, up to $400.' },
+    ]);
+    await openConversation(tim.cookie, TIM_AGENT, 't-desk');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const body = (await (await search(tim.cookie, 'expen')).json()).data;
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0]).toMatchObject({ agentId: TIM_AGENT, threadId: 't-desk' });
+    expect(body.results[0].snippet.replaceAll('\u0001', '[').replaceAll('\u0002', ']')).toContain(
+      '[expense]',
+    );
+    // Too short to search for, and not found when it is not there.
+    expect((await (await search(tim.cookie, 'e')).json()).data.results).toEqual([]);
+    expect((await (await search(tim.cookie, 'unrelated')).json()).data.results).toEqual([]);
+
+    // Bob has none of it.
+    const bob = await signIn('bob');
+    expect((await (await search(bob.cookie, 'expense')).json()).data.results).toEqual([]);
+  });
+
+  it('keeps the last whole transcript as a conversation goes on, and does not need a person to be watching it', async () => {
+    const tim = await signIn('tim');
+    await setFeature(tim, { messageSearch: true });
+    streamsTranscript([{ role: 'user', text: 'first question about apples' }], true);
+    await openConversation(tim.cookie, TIM_AGENT, 't-fruit');
+    streamsTranscript([
+      { role: 'user', text: 'first question about apples' },
+      { role: 'assistant', text: 'apples are fruit; pears too' },
+    ]);
+    await openConversation(tim.cookie, TIM_AGENT, 't-fruit');
+    expect(
+      ((await (await search(tim.cookie, 'pears')).json()).data.results as unknown[]).length,
+    ).toBe(1);
+  });
+
+  it('forgets a conversation when it is deleted here', async () => {
+    const tim = await signIn('tim');
+    await setFeature(tim, { messageSearch: true });
+    streamsTranscript([{ role: 'user', text: 'secret plans about plums' }]);
+    await openConversation(tim.cookie, TIM_AGENT, 't-plums');
+    expect(
+      ((await (await search(tim.cookie, 'plums')).json()).data.results as unknown[]).length,
+    ).toBe(1);
+    platform.fetch = async () => Response.json({ data: { ok: true } });
+    const deleted = await app.request(`/api/agents/${TIM_AGENT}/threads/t-plums`, {
+      method: 'DELETE',
+      headers: { Cookie: tim.cookie, 'X-CSRF-Token': tim.csrf, Origin: 'http://localhost:5177' },
+    });
+    expect(deleted.status).toBe(200);
+    expect((await (await search(tim.cookie, 'plums')).json()).data.results).toEqual([]);
+  });
+
+  it('deletes everything it kept when an administrator turns it off, and says so in the audit log', async () => {
+    const tim = await signIn('tim');
+    await setFeature(tim, { messageSearch: true });
+    streamsTranscript([{ role: 'user', text: 'notes about cherries' }]);
+    await openConversation(tim.cookie, TIM_AGENT, 't-cherries');
+    expect(
+      ((await (await search(tim.cookie, 'cherries')).json()).data.results as unknown[]).length,
+    ).toBe(1);
+
+    expect((await setFeature(tim, { messageSearch: false })).status).toBe(200);
+    expect((await search(tim.cookie, 'cherries')).status).toBe(404);
+    // Turned on again, nothing of it is left.
+    await setFeature(tim, { messageSearch: true });
+    expect((await (await search(tim.cookie, 'cherries')).json()).data.results).toEqual([]);
+    const audit = (
+      await (await app.request('/api/admin/audit', { headers: { Cookie: tim.cookie } })).json()
+    ).data;
+    expect(audit.some((entry: { action: string }) => entry.action === 'search.index_purged')).toBe(
+      true,
+    );
+  });
+
+  it('stops indexing the moment it is turned off, even for a stream already open', async () => {
+    const tim = await signIn('tim');
+    await setFeature(tim, { messageSearch: true });
+    streamsTranscript([{ role: 'user', text: 'before it was turned off: mangoes' }]);
+    const response = await app.request(`/api/agents/${TIM_AGENT}/threads/t-mango/events`, {
+      headers: { Cookie: tim.cookie },
+    });
+    await setFeature(tim, { messageSearch: false });
+    await response.text(); // the stream ends after it was turned off
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await setFeature(tim, { messageSearch: true });
+    expect((await (await search(tim.cookie, 'mangoes')).json()).data.results).toEqual([]);
+  });
+
+  it('needs a session', async () => {
+    expect((await app.request('/api/search?q=desk')).status).toBe(401);
   });
 });

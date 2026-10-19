@@ -137,3 +137,13 @@ export async function saveInbox(page: Page, threads: Record<string, Record<strin
   });
   if (!done.ok()) throw new Error(`could not save the inbox: ${done.status()}`);
 }
+
+/** An administrator (already signed in) turns an optional feature on or off. */
+export async function setFeature(page: Page, feature: string, on: boolean) {
+  const me = await (await page.request.get('/api/me')).json();
+  const done = await page.request.put('/api/admin/settings/features', {
+    headers: { 'X-CSRF-Token': me.data.csrfToken },
+    data: { [feature]: on },
+  });
+  if (!done.ok()) throw new Error(`could not set ${feature}: ${done.status()}`);
+}

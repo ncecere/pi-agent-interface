@@ -11,7 +11,13 @@ export function describeAudit(entry: AuditEntry, names: Map<string, string>): st
   const target = entry.targetId
     ? (names.get(entry.targetId) ?? String(entry.details.email ?? 'someone'))
     : '';
-  const details = entry.details as { from?: string; to?: string; email?: string; via?: string };
+  const details = entry.details as {
+    from?: string;
+    to?: string;
+    email?: string;
+    via?: string;
+    conversations?: number;
+  };
   switch (entry.action) {
     case 'person.created':
       return `${target} signed in for the first time`;
@@ -35,6 +41,8 @@ export function describeAudit(entry: AuditEntry, names: Map<string, string>): st
       return entry.actorId === entry.targetId
         ? `${actor} signed out everywhere`
         : `${actor} ended ${target}'s sessions`;
+    case 'search.index_purged':
+      return `${actor} turned off message search, and its copy of ${details.conversations ?? 0} conversations was deleted`;
     case 'settings.branding':
       return `${actor} changed the branding`;
     case 'settings.features':
