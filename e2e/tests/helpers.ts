@@ -104,3 +104,13 @@ export async function seedInbox(
   });
   if (!done.ok()) throw new Error(`could not save the inbox: ${done.status()}`);
 }
+
+/** Saves the person's appearance (what Settings › Customization saves), so the app opens in that theme. */
+export async function setTheme(page: Page, theme: 'light' | 'dark') {
+  const me = await (await page.request.get('/api/me')).json();
+  const done = await page.request.put('/api/me/prefs/appearance', {
+    headers: { 'X-CSRF-Token': me.data.csrfToken },
+    data: { value: { theme } },
+  });
+  if (!done.ok()) throw new Error(`could not save the appearance: ${done.status()}`);
+}

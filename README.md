@@ -151,6 +151,17 @@ worth adding whenever something is found by looking at the screen.
 **Locked out?** Make someone an administrator from the server: `pnpm admin:promote <email>` (in a container,
 `node dist-server/cli.js promote <email>`). They must have signed in once.
 
+## Accessibility
+
+Checked on every push by the browser tests (`e2e/tests/a11y.spec.ts`): axe (WCAG 2.0/2.1 A and AA) finds nothing on the
+sign-in page, the chat (home, a conversation, a row's menu, the command palette, while an agent works), Settings and every
+Admin page, in the light and dark themes and with each of the four accents; every stop of the keyboard path shows where focus
+is, and the first is a "Skip to main content" link; with reduced motion asked for, nothing on the page keeps animating.
+A reply starting and finishing is announced to screen readers (a polite live region).
+
+Not checked: a screen reader by hand (VoiceOver, NVDA), text scaled to 200 %, and high-contrast mode. Axe finds only a part
+of the problems; if something fails for you, open an issue saying what you used.
+
 ## Settings, and where each kind lives
 
 | Kind | Where | Who changes it | Examples |

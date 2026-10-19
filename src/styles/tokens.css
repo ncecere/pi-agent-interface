@@ -71,7 +71,7 @@
 
   --text-primary: oklch(98.5% 0 0);
   --text-secondary: oklch(80% 0 0);
-  --text-muted: oklch(63% 0 0);
+  --text-muted: oklch(65% 0 0);
   --text-faint: oklch(50% 0 0);
 
   --success: oklch(69.6% 0.17 162.48);
@@ -314,18 +314,19 @@
 /* Emerald */
 [data-color-theme="emerald"],
 [data-color-theme="emerald"].dark {
-  --accent: oklch(59.6% 0.145 163.225);
+  /* Darker than the other accents' dark-theme buttons: white text on 59.6% measured 3.3:1; 50.8% clears 4.5:1. */
+  --accent: oklch(50.8% 0.118 165.612);
   --accent-bright: oklch(76.5% 0.177 163.223);
   --accent-soft: oklch(30% 0.06 163.225);
   --accent-foreground: oklch(98.5% 0 0);
 
-  --accent-button: oklch(59.6% 0.145 163.225);
-  --accent-button-hover: oklch(50.8% 0.118 165.612);
-  --accent-button-border: oklch(59.6% 0.145 163.225);
+  --accent-button: oklch(50.8% 0.118 165.612);
+  --accent-button-hover: oklch(43.2% 0.095 166.913);
+  --accent-button-border: oklch(50.8% 0.118 165.612);
   --accent-button-foreground: oklch(98.5% 0 0);
 
-  --accent-send: oklch(59.6% 0.145 163.225);
-  --accent-send-hover: oklch(50.8% 0.118 165.612);
+  --accent-send: oklch(50.8% 0.118 165.612);
+  --accent-send-hover: oklch(43.2% 0.095 166.913);
 }
 
 [data-color-theme="emerald"].light {
@@ -384,8 +385,11 @@
 .dark {
   --sidebar-row-hover: color-mix(in srgb, white 6%, transparent);
   --sidebar-row-active: color-mix(in srgb, white 10%, transparent);
+  /* A conversation at work: blue, readable on the row tints above. */
+  --status-working: oklch(72% 0.13 240);
 }
 .light {
   --sidebar-row-hover: color-mix(in srgb, black 4%, transparent);
   --sidebar-row-active: color-mix(in srgb, black 7%, transparent);
+  --status-working: oklch(46% 0.15 250);
 }

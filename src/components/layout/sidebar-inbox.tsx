@@ -330,8 +330,8 @@ function Heading({ id, children }: { id: string; children: ReactNode }) {
 }
 
 const STATUS_TONE: Record<NonNullable<InboxEntry['status']>, string> = {
-  working: 'text-[oklch(0.72_0.13_240)]',
-  failed: 'text-[oklch(0.66_0.2_25)]',
+  working: 'text-[var(--status-working)]',
+  failed: 'text-[var(--danger)]',
   unread: 'text-[var(--success)]',
   woke: 'text-[var(--warning)]',
 };
@@ -453,7 +453,7 @@ function StatusBadge({
       />
       {STATUS_LABEL[status]}
       {status === 'working' && workingSince !== undefined && (
-        <span className="font-normal opacity-80">
+        <span className="font-normal">
           <Elapsed since={workingSince} />
         </span>
       )}
@@ -672,7 +672,7 @@ function InboxRow({
   // The corner: a status, the time left on a snooze, or when it was settled.
   const corner =
     bucket === 'snoozed' && meta.snoozedUntil ? (
-      <span className="shrink-0 text-xs text-[oklch(0.72_0.13_240)] tabular-nums">
+      <span className="shrink-0 text-xs text-[var(--status-working)] tabular-nums">
         {untilLabel(meta.snoozedUntil, now)}
       </span>
     ) : status ? (

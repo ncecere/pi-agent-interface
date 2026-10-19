@@ -28,7 +28,8 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={compact ? 'Open user menu' : undefined}
+        // The name starts with the initials shown on the button (WCAG 2.5.3 Label in Name).
+        aria-label={compact ? `${initials}, open user menu` : undefined}
         className={cn(
           'flex items-center gap-3 rounded-lg text-left transition-colors hover:bg-[var(--bg-control)]',
           compact ? 'rounded-full p-1' : 'w-full px-2 py-2',

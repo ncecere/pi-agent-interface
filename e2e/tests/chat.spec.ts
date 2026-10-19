@@ -40,6 +40,8 @@ test.describe('sign-in and chat', () => {
     test.skip(info.project.name === 'touch', 'a keyboard');
     await signInAs(page, 'priya');
     await page.goto('/');
+    // The app has to be up before it hears the shortcut.
+    await expect(page.getByRole('heading', { name: /What should/ })).toBeVisible();
     await page.keyboard.press('ControlOrMeta+k');
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.type('expense');

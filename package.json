@@ -32,6 +32,7 @@
     "postgres": "3.4.9"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@biomejs/biome": "2.5.7",
     "@playwright/test": "^1.64.1",
     "@radix-ui/react-dialog": "1.1.23",

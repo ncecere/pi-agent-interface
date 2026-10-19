@@ -34,9 +34,12 @@ function ModelSelect({
   value,
   models,
   emptyLabel,
+  label,
   onChange,
 }: {
   id?: string;
+  /** The control's name, where no <label> points at it. */
+  label?: string;
   value: string | null;
   models: AgentsAdmin['models'];
   emptyLabel: string;
@@ -45,6 +48,7 @@ function ModelSelect({
   return (
     <select
       id={id}
+      aria-label={label}
       value={value ?? ''}
       onChange={(event) => onChange(event.target.value || null)}
       className={FIELD}
@@ -89,6 +93,7 @@ function SettingsForm({ data }: { data: AgentsAdmin }) {
       >
         <div className="w-64">
           <ModelSelect
+            label="Default model"
             value={draft.defaultModelId}
             models={data.models}
             emptyLabel={envModel ? `AGENT_MODEL (${envModel})` : "Platform's default"}
