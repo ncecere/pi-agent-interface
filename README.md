@@ -147,7 +147,7 @@ Rotate the same way if the secret leaks, but then remove the previous one as soo
 and verify its cosign signature):
 
 ```sh
-docker run -d -p 8080:8080 --env-file .env ghcr.io/ncecere/pi-agent-interface:v0.4.0
+docker run -d -p 8080:8080 --env-file .env ghcr.io/ncecere/pi-agent-interface:v0.5.0
 # or build it:  docker build -t pi-agent-interface .
 ```
 

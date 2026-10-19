@@ -2,7 +2,7 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryStore, type Store, StoreError } from '../../server/store.ts';
-import { migrate, PgStore } from '../../server/store-pg.ts';
+import { MIGRATIONS, migrate, PgStore } from '../../server/store-pg.ts';
 
 /**
  * One contract, two stores. The Postgres run needs a server: the development
@@ -356,6 +356,28 @@ describe.skipIf(!available)('PgStore', () => {
     const store = PgStore.connect(url.href);
     stores.push(store);
     expect(await migrate(store.sql)).toEqual([1, 2, 3, 4]);
+    expect(await migrate(store.sql)).toEqual([]);
+  });
+
+  it('upgrades a database a release behind, keeping what it holds', async () => {
+    // A database as 0.4.0 left it: migrations 1 to 3, with a person and a connection in it.
+    const db = `${name}_upgrade`;
+    await admin.unsafe(`create database ${db}`);
+    const url = new URL(ADMIN_URL);
+    url.pathname = `/${db}`;
+    const store = PgStore.connect(url.href);
+    stores.push(store);
+    await store.sql`create table schema_migrations (version integer primary key, name text not null, applied_at timestamptz not null default now())`;
+    for (const migration of MIGRATIONS.filter((m) => m.version <= 3)) {
+      await store.sql.unsafe(migration.sql);
+      await store.sql`insert into schema_migrations (version, name) values (${migration.version}, ${migration.name})`;
+    }
+    await store.sql`insert into people (id, email, name) values ('old', 'old@example.test', 'Old')`;
+    expect(await migrate(store.sql)).toEqual([4]);
+    expect(await store.person('old')).toMatchObject({ email: 'old@example.test' });
+    await store.indexThread('old', 'a', 't', 'now searchable');
+    expect(await store.searchIndex('old', 'searchable', 5)).toHaveLength(1);
+    // And an older release started against this database still finds what it knows.
     expect(await migrate(store.sql)).toEqual([]);
   });
 
