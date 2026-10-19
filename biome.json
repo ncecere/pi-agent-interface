@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/.turbo", "!**/drizzle", "!screen_shots"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/.turbo",
+      "!**/drizzle",
+      "!screen_shots",
+      "!e2e/platform"
+    ]
   },
   "formatter": {
     "enabled": true,

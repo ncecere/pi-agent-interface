@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Browser tests in CI** (`pnpm e2e`): sign-in, chat with a streamed reply, the inbox (including the status-over-actions layout fixed in 0.3.1, on desktop and touch), administration access and the Connect flow, against a fake platform. Not part of the shipped image.
 - **Rotating `SESSION_SECRET`.** Put the old secret in `SESSION_SECRET_PREVIOUS` and the new one in `SESSION_SECRET`:
   sessions keep working (and are sealed again with the new secret as they are used), and on start the app seals every
   stored platform connection with the new secret, so nobody signs in or connects again. The log says when the old secret

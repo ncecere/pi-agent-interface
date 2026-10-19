@@ -140,6 +140,12 @@ pnpm typecheck && pnpm test && pnpm lint
 pnpm gen:api                 # platform types from ../golang/pi-durable-platform/api/openapi.yaml
 ```
 
+**Browser tests.** `pnpm build && pnpm e2e` drives the built app in a real browser (desktop and a phone-sized touch
+screen) against a fake platform (`e2e/platform`: the fictional Example Corp, with its people, agents and conversations) in
+both modes, service and Connect. It needs the development Postgres (`pnpm db:up`) or `TEST_DATABASE_URL`, makes a database
+of its own for each app, and the first time `pnpm exec playwright install chromium`. CI runs it on every push. A test is
+worth adding whenever something is found by looking at the screen.
+
 `/avatars` (development only) is a review page for the avatar styles.
 
 **Locked out?** Make someone an administrator from the server: `pnpm admin:promote <email>` (in a container,

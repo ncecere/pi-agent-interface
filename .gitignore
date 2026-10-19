@@ -31,3 +31,7 @@ dist-server/
 
 # Screenshots dropped in for review
 /image*.png
+
+# Browser tests
+test-results/
+playwright-report/
