@@ -84,6 +84,31 @@ Environment variables (a `.env.local` or `.env` file is read too; real variables
 The server refuses to start, naming every problem, if the configuration is incomplete or unsafe: a platform or
 provider that is not https (outside localhost), development accounts on a public address, a short session secret.
 
+### Backing up and restoring
+
+The database holds who has signed in, their role, settings and preferences, each person's encrypted agent-platform tokens,
+and which agent is their copy of a provided agent. **Conversations are on the agent platform, not here.** Back it up like any
+PostgreSQL database: a scheduled `pg_dump`, or continuous archiving (point-in-time recovery) if your operator offers it.
+
+To restore: bring the database back, then start the app against it (it migrates on start; the schema version is in
+`schema_migrations`). What a restore needs and does:
+
+- **Keep `SESSION_SECRET`** (and `SESSION_SECRET_PREVIOUS`, if a rotation was under way). The stored platform tokens are
+  sealed with it; with another secret nobody's connection opens and everyone connects again, and everyone signs in again.
+- **Everything in the database is restored as of the recovery point**: people, roles, audit log, saved inbox state, and
+  connections. The platform rotates a refresh token every time it is used, so a person whose token was refreshed after the
+  recovery point comes back with one the platform has already seen: it refuses it, the app forgets the connection, and the
+  person connects again (counted as "ended" in the metrics). Recovering to the latest point avoids this.
+- Browser-only state (an unsaved draft) is not in the database and is not restored.
+
+On CloudNativePG with the Barman Cloud plugin, the restore is a new `Cluster` with `bootstrap.recovery` from the object store
+(add `recoveryTarget.targetTime` for a point in time), without a `plugins:` entry so it does not write into the backups.
+Rehearse it in a scratch namespace rather than beside the live cluster: a namespace with default-deny network policies
+blocks a cluster it does not name, and a `Retain` storage class keeps the scratch volumes until you remove them. This was
+rehearsed on 2026-10-19 on the reference deployment: the latest state and a point in time (five hours back) were each
+restored in about a minute, every table matched the live database, the sealed tokens opened with the live `SESSION_SECRET`,
+and the scratch volumes were removed afterwards.
+
 ### Metrics
 
 With `METRICS_ENABLED=true` the app answers `GET /metrics` (Prometheus text format) on `METRICS_PORT`, separate from the
