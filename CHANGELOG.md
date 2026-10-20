@@ -4,6 +4,16 @@
 
 Nothing yet.
 
+## 0.5.1
+
+Released 2026-10-19. Two glitches on phones. No migration and no new setting.
+
+- **The page no longer zooms in when you tap a text field, and stays zoomed.** iOS Safari zooms into any field with text
+  under 16px, and doesn't zoom back out, so after each tap the page had to be pinched back to size. On touch screens
+  every text field (the message box, the conversation search, Settings and Admin fields, dialogs) is now at least 16px.
+  Desktop sizes are unchanged and pinch-zoom is still allowed. Browser tests now check every page and dialog.
+- **The greeting** ("What should Assistant work on, Priya?") no longer starts its second line with the comma on a phone.
+
 ## 0.5.0
 
 Released 2026-10-19. Long lists, usage with Connect, and search inside messages. A database migration (4) adds the

@@ -178,3 +178,17 @@
     color: inherit;
   }
 }
+
+/*
+ * On a touch screen, text fields are at least 16px. iOS Safari zooms the page into any field under 16px when it gets
+ * focus, and does not zoom back out, so the person has to pinch the page back to size after every tap. This is
+ * outside the cascade layers so it beats the utilities' smaller sizes (text-sm, text-[0.9375rem]); the pinch-zoom
+ * itself stays allowed. Checkboxes and radios have no text, so they are left alone.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}

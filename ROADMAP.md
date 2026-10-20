@@ -2,7 +2,7 @@
 
 What is not built yet. Each item is a GitHub issue with the proposed implementation and what “done” means. Dates are not promised.
 
-This list is complete as of v0.5.0: if something you need is missing from the app and not here, open an issue.
+This list is complete as of v0.5.1: if something you need is missing from the app and not here, open an issue.
 
 ## Built so far
 

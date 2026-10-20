@@ -117,7 +117,17 @@ export function ChatHomePage({ agentId }: { agentId?: string }) {
               {agent ? (
                 <>
                   What should {agent.name} work on
-                  {firstName ? <span className="block md:inline">, {firstName}?</span> : '?'}
+                  {firstName ? (
+                    // The comma stays on the first line; on a phone the name is the second.
+                    <>
+                      ,
+                      <span className="block md:inline md:before:content-['\00a0']">
+                        {firstName}?
+                      </span>
+                    </>
+                  ) : (
+                    '?'
+                  )}
                 </>
               ) : loading ? (
                 <span className="invisible">Loading</span>
